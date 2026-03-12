@@ -9,6 +9,10 @@ class User(Base):
     id = Column(String, primary_key=True, index=True) # Firebase UID
     name = Column(String, index=True)
     email = Column(String, unique=True, index=True)
+    role = Column(String, default="student") # coach, student, health_pro, admin
+    coach_id = Column(String, ForeignKey("users.id"), nullable=True) # If managed by a coach
+    workspace_id = Column(String, nullable=True) # For workspace-based management
+    
     idade = Column(Integer)
     peso = Column(Float)
     tipo_diabetes = Column(Integer) # 1 or 2
@@ -29,6 +33,9 @@ class User(Base):
     insights = relationship("Insight", back_populates="user")
     recovery_logs = relationship("RecoveryLog", back_populates="user")
     experiments = relationship("Experiment", back_populates="user")
+    protocols = relationship("TrainingProtocol", back_populates="user")
+    feedbacks = relationship("TrainingFeedback", back_populates="user", foreign_keys="[TrainingFeedback.user_id]")
+    
     training_style = Column(String, nullable=True) # HIT, Volume, Powerlifting, etc
     injuries = Column(String, nullable=True)
     equipment = Column(String, nullable=True) # Full Gym, Home, etc
@@ -90,27 +97,72 @@ class NutritionLog(Base):
     
     user = relationship("User", back_populates="nutrition_logs")
 
-class WorkoutProgram(Base):
-    __tablename__ = "workout_programs"
+# --- NOVO MODULO DE TREINAMENTO ---
+
+class TrainingProtocol(Base):
+    __tablename__ = "training_protocols"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String, ForeignKey("users.id"))
-    nome = Column(String) # ex: "Push/Pull/Legs - Elite"
-    objetivo = Column(String) # ex: "Hipertrofia", "Força"
-    ativo = Column(Boolean, default=True)
-    criado_em = Column(DateTime(timezone=True), server_default=func.now())
+    name = Column(String) # ex: "Fase 1 - Hipertrofia Base"
+    objective = Column(String, nullable=True)
+    freq_weekly = Column(Integer, nullable=True)
+    duration_weeks = Column(Integer, nullable=True)
+    observations = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=True) # Coach who created it
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="protocols", foreign_keys=[user_id])
+    sessions = relationship("TrainingSession", back_populates="protocol", cascade="all, delete-orphan")
+
+class TrainingSession(Base):
+    __tablename__ = "training_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    protocol_id = Column(Integer, ForeignKey("training_protocols.id"))
+    name = Column(String) # ex: "Treino A - Inferiores"
+    order = Column(Integer)
+    day_of_week = Column(String, nullable=True) # ex: "Segunda", ou "Dia 1"
+    observations = Column(Text, nullable=True)
+    
+    # Componentes complementares
+    warmup_notes = Column(Text, nullable=True)
+    mobility_notes = Column(Text, nullable=True)
+    cardio_notes = Column(Text, nullable=True)
+    post_workout_notes = Column(Text, nullable=True)
+
+    protocol = relationship("TrainingProtocol", back_populates="sessions")
+    exercises = relationship("Exercise", back_populates="session", cascade="all, delete-orphan")
 
 class Exercise(Base):
     __tablename__ = "exercises"
 
     id = Column(Integer, primary_key=True, index=True)
-    program_id = Column(Integer, ForeignKey("workout_programs.id"))
-    nome = Column(String)
-    series = Column(Integer)
-    repeticoes = Column(String) # ex: "8-12" ou "falha"
-    descanso = Column(Integer) # segundos
-    ordem = Column(Integer)
-    notas = Column(String, nullable=True)
+    session_id = Column(Integer, ForeignKey("training_sessions.id"))
+    name = Column(String)
+    photo_url = Column(String, nullable=True)
+    stimulus_type = Column(String, nullable=True) # ex: "Hipertrofia", "Método Rest-Pause"
+    order = Column(Integer)
+    is_locked = Column(Boolean, default=False)
+    notes = Column(Text, nullable=True)
+
+    session = relationship("TrainingSession", back_populates="exercises")
+    sets = relationship("ExerciseSet", back_populates="exercise", cascade="all, delete-orphan")
+    logs = relationship("WorkoutLog", back_populates="exercise")
+
+class ExerciseSet(Base):
+    __tablename__ = "exercise_sets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    exercise_id = Column(Integer, ForeignKey("exercises.id"))
+    set_number = Column(Integer)
+    set_type = Column(String) # "warmup", "feeder", "valid"
+    planned_reps = Column(String, nullable=True) # ex: "8-12"
+    planned_weight = Column(Float, nullable=True)
+    
+    exercise = relationship("Exercise", back_populates="sets")
+    logs = relationship("WorkoutLog", back_populates="set")
 
 class WorkoutLog(Base):
     __tablename__ = "workout_logs"
@@ -118,16 +170,35 @@ class WorkoutLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String, ForeignKey("users.id"))
     exercise_id = Column(Integer, ForeignKey("exercises.id"))
-    carga = Column(Float) # kg
-    reps_reais = Column(Integer)
-    rpe = Column(Integer, nullable=True) # 1-10 esforço percebido
-    feeling = Column(String, nullable=True) # como se sentiu no dia
-    period = Column(String, nullable=True) # manhã, tarde, noite
-    duration = Column(Integer, nullable=True) # minutos totais da sessão ou exercício
-    completed = Column(Boolean, default=True)
-    progression = Column(Boolean, default=False)
+    set_id = Column(Integer, ForeignKey("exercise_sets.id"), nullable=True)
+    
+    weight = Column(Float) # actual kg
+    reps = Column(Integer) # actual reps
+    rpe = Column(Integer, nullable=True) # 1-10
+    feeling = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    
     user = relationship("User", back_populates="workout_logs")
-    registrado_em = Column(DateTime(timezone=True), server_default=func.now())
+    exercise = relationship("Exercise", back_populates="logs")
+    set = relationship("ExerciseSet", back_populates="logs")
+
+class TrainingFeedback(Base):
+    __tablename__ = "training_feedbacks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id"))
+    coach_id = Column(String, ForeignKey("users.id"))
+    protocol_id = Column(Integer, ForeignKey("training_protocols.id"), nullable=True)
+    session_log_id = Column(Integer, nullable=True) # Could link to a specific session execution group
+    
+    content = Column(Text)
+    feedback_type = Column(String) # "daily", "periodic"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="feedbacks", foreign_keys=[user_id])
+
+# --- OUTROS MODELS ---
 
 class Insight(Base):
     __tablename__ = "insights"

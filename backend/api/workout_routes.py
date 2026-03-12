@@ -4,111 +4,116 @@ from typing import List, Dict, Optional
 from backend.core.database import get_db
 from backend.core.auth.firebase_auth import get_current_user
 from backend.services.workout_service import WorkoutService
-from backend.services.autonomous_service import AutonomousService
-from backend.models.user import User, WorkoutProgram, Exercise, WorkoutLog
+from backend.services.ai_trainer_service import AITrainerService
+from backend.models.user import (
+    User, TrainingProtocol, TrainingSession, 
+    Exercise, ExerciseSet, WorkoutLog, TrainingFeedback
+)
 from pydantic import BaseModel
 from datetime import datetime
 
-router = APIRouter(prefix="/workouts", tags=["Treino de Alta Performance"])
+router = APIRouter(prefix="/workouts", tags=["Treino Elite - Módulo Avançado"])
 workout_service = WorkoutService()
-autonomous_service = AutonomousService()
+ai_trainer_service = AITrainerService()
 
-class WorkoutLogCreate(BaseModel):
+# --- SCHEMAS ---
+
+class SetLogCreate(BaseModel):
     exercise_id: int
-    carga: float
-    reps_reais: int
-    rpe: int
+    set_id: int
+    weight: float
+    reps: int
+    rpe: Optional[int] = None
     feeling: Optional[str] = None
-    period: Optional[str] = None
-    duration: Optional[int] = None
-    completed: Optional[bool] = True
-    progression: Optional[bool] = False
-    registrado_em: Optional[datetime] = None
+    notes: Optional[str] = None
 
-class WorkoutLogResponse(BaseModel):
-    id: int
-    exercise_id: int
-    carga: float
-    reps_reais: int
-    rpe: int
-    feeling: Optional[str]
-    registrado_em: datetime
-    exercise_nome: Optional[str] = None
+class AIWorkoutRequest(BaseModel):
+    request: str
 
-    class Config:
-        from_attributes = True
+class AIChatMessage(BaseModel):
+    role: str
+    content: str
 
-@router.get("/active")
-def get_active_workout(db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
-    program = workout_service.get_active_program(db, current_user)
-    if not program:
-        return {"message": "Nenhum programa ativo."}
+class AIChatRequest(BaseModel):
+    messages: List[AIChatMessage]
+
+# --- ROUTES ---
+
+@router.get("/active-protocol")
+def get_active_protocol(db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
+    protocol = workout_service.get_active_protocol(db, current_user)
+    if not protocol:
+        return {"message": "Sem protocolo ativo."}
     
-    exercises = workout_service.get_program_exercises(db, program.id)
+    sessions = workout_service.get_protocol_sessions(db, protocol.id)
     return {
-        "program_name": program.nome,
-        "exercises": [
+        "id": protocol.id,
+        "name": protocol.name,
+        "sessions": [
             {
-                "id": ex.id,
-                "nome": ex.nome,
-                "series": ex.series,
-                "repeticoes": ex.repeticoes,
-                "descanso": ex.descanso,
-                "notas": ex.notas
-            } for ex in exercises
+                "id": s.id,
+                "name": s.name,
+                "order": s.order,
+                "day_of_week": s.day_of_week
+            } for s in sessions
         ]
     }
 
-@router.post("/log")
-async def log_workout_session(log: WorkoutLogCreate, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
-    new_log = WorkoutLog(
-        user_id=current_user,
-        exercise_id=log.exercise_id,
-        carga=log.carga,
-        reps_reais=log.reps_reais,
-        rpe=log.rpe,
-        feeling=log.feeling,
-        period=log.period,
-        duration=log.duration,
-        completed=log.completed,
-        progression=log.progression
-    )
-    db.add(new_log)
-    db.commit()
+@router.get("/session/{session_id}")
+def get_session_details(session_id: int, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
+    session = workout_service.get_session_details(db, session_id)
+    if not session:
+        raise HTTPException(404, "Sessão não encontrada")
     
-    # Gerar tip do coach
-    exercise = db.query(Exercise).filter(Exercise.id == log.exercise_id).first()
-    tip = await workout_service.generate_elite_tips(exercise.nome, f"Carga: {log.carga}kg, Reps: {log.reps_reais}, RPE: {log.rpe}")
-    
-    # TRIGGER MOTOR AUTÔNOMO (Módulo 10)
-    await autonomous_service.run_proactive_analysis(db, current_user)
-    
-    return {"message": "Série registrada!", "coach_tip": tip}
+    return {
+        "name": session.name,
+        "warmup": session.warmup_notes,
+        "mobility": session.mobility_notes,
+        "cardio": session.cardio_notes,
+        "exercises": [
+            {
+                "id": ex.id,
+                "name": ex.name,
+                "stimulus": ex.stimulus_type,
+                "photo": ex.photo_url,
+                "notes": ex.notes,
+                "sets": [
+                    {
+                        "id": s.id,
+                        "number": s.set_number,
+                        "type": s.set_type,
+                        "planned_reps": s.planned_reps,
+                        "planned_weight": s.planned_weight
+                    } for s in ex.sets
+                ]
+            } for ex in session.exercises
+        ]
+    }
 
-@router.get("/performance/{exercise_id}")
-async def get_performance(exercise_id: int, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
-    analysis = await workout_service.analyze_performance(db, current_user, exercise_id)
-    return analysis
+@router.post("/log-set")
+async def log_set(log_data: SetLogCreate, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
+    log = await workout_service.log_set_execution(db, current_user, log_data.dict())
+    
+    # Gerar tip rápida baseada na carga
+    ex_name = db.query(Exercise.name).filter(Exercise.id == log_data.exercise_id).scalar()
+    tip = await workout_service.generate_elite_tips(ex_name, f"Carga: {log.weight}kg, Reps: {log.reps}")
+    
+    return {"message": "Série salva!", "coach_tip": tip}
 
-@router.get("/options")
-async def get_training_options(db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
+@router.get("/analysis/{exercise_id}")
+async def get_exercise_analysis(exercise_id: int, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
+    return await workout_service.analyze_progress(db, current_user, exercise_id)
+
+# --- AI TRAINER ROUTES ---
+
+@router.post("/ai/prescribe")
+async def ai_prescribe_workout(req: AIWorkoutRequest, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
     user = db.query(User).filter(User.id == current_user).first()
-    if not user: raise HTTPException(404, "User not found")
-    return await workout_service.get_customized_options(user)
+    plan = await ai_trainer_service.generate_workout_plan(user, req.request)
+    return plan
 
-@router.get("/patterns")
-async def get_workout_patterns(db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
-    return await workout_service.analyze_performance_patterns(db, current_user)
-
-@router.get("/logs", response_model=List[WorkoutLogResponse])
-async def get_workout_logs(db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
-    logs = db.query(WorkoutLog).filter(WorkoutLog.user_id == current_user).order_by(WorkoutLog.registrado_em.desc()).all()
-    
-    # Adicionar nome do exercício aos logs para facilitar no mobile
-    res = []
-    for l in logs:
-        ex_nome = db.query(Exercise.nome).filter(Exercise.id == l.exercise_id).scalar()
-        item = WorkoutLogResponse.from_orm(l)
-        item.exercise_nome = ex_nome
-        res.append(item)
-    return res
+@router.post("/ai/chat")
+async def ai_chat(req: AIChatRequest, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
+    user = db.query(User).filter(User.id == current_user).first()
+    response = await ai_trainer_service.chat_interaction(user, [m.dict() for m in req.messages])
+    return {"response": response}
