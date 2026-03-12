@@ -8,6 +8,7 @@ alembic
 langchain
 langchain-openai
 langchain-google-genai
+langchain-qdrant
 llama-index
 qdrant-client
 python-dotenv
