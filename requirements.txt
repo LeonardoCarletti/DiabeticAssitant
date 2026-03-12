@@ -9,6 +9,8 @@ langchain
 langchain-openai
 langchain-google-genai
 langchain-qdrant
+langchain-text-splitters
+langchain-community
 llama-index
 qdrant-client
 python-dotenv
@@ -19,3 +21,7 @@ pillow
 pytest
 fpdf2
 requests
+pandas
+numpy
+scikit-learn
+openpyxl
