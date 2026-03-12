@@ -21,3 +21,5 @@ requests
 openpyxl
 
 firebase-admin
+
+fpdf2
