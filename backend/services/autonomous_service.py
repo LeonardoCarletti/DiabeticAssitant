@@ -5,7 +5,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from backend.core.config import settings
 from datetime import datetime, timedelta
-import pandas as pd
+
 
 from backend.services.rag_service import RAGService
 
