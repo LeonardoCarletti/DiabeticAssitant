@@ -15,12 +15,7 @@ qdrant-client
 python-dotenv
 httpx
 pdfplumber
-pytesseract
+python-multipart
 pillow
-pytest
-fpdf2
 requests
-pandas
-numpy
-scikit-learn
 openpyxl
