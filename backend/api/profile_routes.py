@@ -13,9 +13,8 @@ from backend.core.database import get_db
 from backend.core.auth.firebase_auth import get_current_user
 from backend.models.user import User, DailyLog
 
-router = APIRouter(prefix="/profile", tags=["Perfil e Rotina Diária"])
+router = APIRouter(prefix="/profile", tags=["Perfil e Rotina Diaria"])
 
-# Schemas para Input/Output
 class UserCreate(BaseModel):
     name: str
     email: str
@@ -24,7 +23,7 @@ class UserCreate(BaseModel):
     tipo_diabetes: int
     insulina_basal: str
     insulina_rapida: str
-    objetivo: Optional[str] = "Manutenção"
+    objetivo: Optional[str] = "Manutencao"
     calorias_alvo: Optional[float] = 2000.0
     proteina_alvo: Optional[float] = 150.0
     carbo_alvo: Optional[float] = 200.0
@@ -43,7 +42,6 @@ class UserResponse(UserCreate):
         from_attributes = True
 
 class DailyLogCreate(BaseModel):
-    # user_id removido do input pois virá do token
     glicemia: float
     momento: str
     carboidratos: Optional[float] = None
@@ -66,19 +64,13 @@ class DailyLogResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# Rotas
 @router.post("/me", response_model=UserResponse)
 def sync_user(user: UserCreate, db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
-    """
-    Sincroniza os dados do Firebase com o perfil local.
-    """
     db_user = db.query(User).filter(User.id == current_user).first()
     if db_user:
-        # Update existing
         for var, value in user.model_dump().items():
             setattr(db_user, var, value) if value else None
     else:
-        # Create new with Firebase UID
         new_user = User(id=current_user, **user.model_dump())
         db.add(new_user)
         db_user = new_user
@@ -90,7 +82,7 @@ def sync_user(user: UserCreate, db: Session = Depends(get_db), current_user: str
 def get_me(db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
     user = db.query(User).filter(User.id == current_user).first()
     if not user:
-        raise HTTPException(status_code=404, detail="Perfil não encontrado. Por favor, complete o onboarding.")
+        raise HTTPException(status_code=404, detail="Perfil nao encontrado. Por favor, complete o onboarding.")
     return user
 
 @router.post("/logs", response_model=DailyLogResponse)
@@ -112,13 +104,12 @@ def get_my_logs(db: Session = Depends(get_db), current_user: str = Depends(get_c
 
 @router.post("/import-universal")
 async def import_universal_logs(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: str = Depends(get_current_user)):
-    # Garantir existência do usuário
     db_user = db.query(User).filter(User.id == current_user).first()
     if not db_user:
         db_user = User(
             id=current_user,
-            name="Leonardo",
-            email="leonardo@exemplo.com", # Adicionado email default
+            name="Usuario",
+            email="user@exemplo.com",
             tipo_diabetes=1,
             insulina_basal="Lantus",
             insulina_rapida="Novorapid"
@@ -131,67 +122,45 @@ async def import_universal_logs(file: UploadFile = File(...), db: Session = Depe
         contents = await file.read()
         extracted_text = ""
 
-        # 1. Extração de Texto baseada no tipo de arquivo
         if ext == 'pdf':
             with pdfplumber.open(io.BytesIO(contents)) as pdf:
                 for page in pdf.pages:
                     text = page.extract_text()
                     if text:
-                        extracted_text += text + "
-"
+                        extracted_text += text + " "
         elif ext in ['csv', 'txt', 'json']:
             extracted_text = contents.decode('utf-8')
         elif ext in ['xlsx', 'xls']:
-            # Refatorado para evitar pandas no backend Vercel por enquanto
-            raise HTTPException(400, "Excel não suportado temporariamente. Use PDF ou CSV.")
+            raise HTTPException(400, "Excel nao suportado. Use PDF, CSV, TXT ou JSON.")
         else:
-            raise HTTPException(400, "Formato de arquivo não suportado para importação inteligente. Use PDF, CSV, TXT ou JSON.")
+            raise HTTPException(400, "Formato de arquivo nao suportado. Use PDF, CSV, TXT ou JSON.")
 
         if not extracted_text.strip():
-            raise HTTPException(400, "O arquivo anexado parece estar vazio ou não foi possível ler o texto.")
+            raise HTTPException(400, "O arquivo parece estar vazio ou nao foi possivel ler o texto.")
 
-        # 2. IA do Gemini faz o Parsing e Normalização
         llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash", # Corrigido de 2.5 para 2.0 que existe
+            model="gemini-2.0-flash",
             temperature=0.0,
             google_api_key=settings.GEMINI_API_KEY
         )
 
+        system_msg = (
+            "Voce e um extrator de dados medicos experiente em relatorios de diabetes. "
+            "Converta os dados em um JSON array. "
+            "Estrutura: [{\"glicemia\": float|null, \"momento\": string, \"carboidratos\": float|null, "
+            "\"dose_insulina\": float|null, \"dose_basal\": float|null, \"notas\": string, "
+            "\"registrado_em\": \"YYYY-MM-DDTHH:MM:SS\"}]. "
+            "NUNCA use 0 para glicemia ausente, use null. "
+            "Retorne APENAS o JSON puro, sem markdown."
+        )
+
         prompt = ChatPromptTemplate.from_messages([
-            ("system", "Você é um extrator de dados médicos infalível e experiente em relatórios de diabetes. "
-                       "Eu vou te passar um texto bruto copiado de um relatório (MySugr, Freestyle Libre, exames). "
-                       "Sua tarefa é converter as linhas de dados em um JSON array.
-
-"
-                       "Estrutura do JSON desejada:
-"
-                       "[{\"glicemia\": float ou null, \"momento\": string, \"carboidratos\": float ou null, \"dose_insulina\": float ou null, "
-                       "\"dose_basal\": float ou null, \"notas\": string, \"registrado_em\": \"YYYY-MM-DDTHH:MM:SS\"}]
-
-"
-                       "REGRAS CRÍTICAS:
-"
-                       "1. NUNCA use 0 para glicemia se o dado estiver ausente. Use null.
-"
-                       "2. Extraia apenas os números. Se ler '120 mg/dL', extraia 120. Se ler '5 UI', extraia 5.
-"
-                       "3. Interprete datas brasileiras (DD/MM/AAAA) ou americanas conforme o contexto do texto.
-"
-                       "4. Se o ano não aparecer, use 2026.
-"
-                       "5. O campo 'momento' deve resumir o contexto (ex: 'Café', 'Almoço', 'Dormir').
-"
-                       "6. IGNORE COMPLETAMENTE linhas que não possuam nem glicemia nem qualquer dose de insulina.
-"
-                       "7. Retorne APENAS o JSON puro, sem markdown."),
-            ("user", "Extraia os dados deste texto bruto:
-
-{texto}")
+            ("system", system_msg),
+            ("user", "Extraia os dados deste texto:\n\n{texto}")
         ])
 
         chain = prompt | llm
 
-        # Limitamos o tamanho do texto evitamos estourar o limite de token para planilhas brutas gigantescas no MVP
         if len(extracted_text) > 40000:
             extracted_text = extracted_text[:40000]
 
@@ -205,22 +174,16 @@ async def import_universal_logs(file: UploadFile = File(...), db: Session = Depe
 
         try:
             logs_array = json.loads(raw_json)
-        except json.JSONDecodeError as de:
-             raise HTTPException(500, f"Falha na IA ao formatar saída. Saída crua: {raw_json[:200]}")
+        except json.JSONDecodeError:
+            raise HTTPException(500, f"Falha na IA. Saida crua: {raw_json[:200]}")
 
         logs_adicionados = 0
         for item in logs_array:
             try:
-                # O item de dicionário vira modelo Pydantic para validação
-                # Registrando diretamente por SQLAlchemy pra garantir os nulos
                 parsed_dt = datetime.fromisoformat(item.get("registrado_em")) if item.get("registrado_em") else datetime.now()
-
-                # Se não tem glicemia nem nenhuma insulina útil (valor > 0), ignoramos
                 glic = item.get("glicemia")
                 ins = item.get("dose_insulina")
                 bas = item.get("dose_basal")
-
-                # Se tudo for zero ou null, a linha é lixo de cabeçalho do PDF
                 if not any([
                     glic and glic > 0,
                     ins and ins > 0,
@@ -228,7 +191,6 @@ async def import_universal_logs(file: UploadFile = File(...), db: Session = Depe
                     item.get("carboidratos") and item.get("carboidratos") > 0
                 ]):
                     continue
-
                 new_db_log = DailyLog(
                     user_id=current_user,
                     glicemia=item.get("glicemia"),
@@ -241,11 +203,11 @@ async def import_universal_logs(file: UploadFile = File(...), db: Session = Depe
                 )
                 db.add(new_db_log)
                 logs_adicionados += 1
-            except Exception as e:
+            except Exception:
                 continue
 
         db.commit()
-        return {"message": f"I.A. do Gemini processou o arquivo e importou {logs_adicionados} registros com sucesso!"}
+        return {"message": f"IA do Gemini importou {logs_adicionados} registros com sucesso!"}
 
     except Exception as e:
         db.rollback()
