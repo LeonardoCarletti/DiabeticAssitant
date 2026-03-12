@@ -19,3 +19,5 @@ python-multipart
 pillow
 requests
 openpyxl
+
+firebase-admin
