@@ -3,14 +3,13 @@ from pydantic import BaseModel
 from typing import List
 import shutil
 import os
-import pdfplumber
 
 from backend.services.rag_service import RAGService
 from backend.services.research_service import ResearchService
 
 router = APIRouter(prefix="/research", tags=["RAG - Assistente Pesquisador"])
 
-# Lazy initialization para evitar erros durante import quando API keys não estão configuradas
+# Lazy initialization para evitar erros durante import quando API keys nao estao configuradas
 _rag_service = None
 _research_service = None
 
@@ -64,16 +63,21 @@ async def upload_document(
     year: int = Form(2025)
 ):
     """
-    Faz o upload de um artigo científico em PDF, extrai o texto e salva no Vector Store.
+    Faz o upload de um artigo cientifico em PDF, extrai o texto e salva no Vector Store.
     """
+    import pdfplumber  # lazy import para evitar crash no startup da Vercel
+
     if not file.filename.endswith(".pdf"):
-        return {"error": "Apenas arquivos PDF são aceitos no momento."}
+        return {"error": "Apenas arquivos PDF sao aceitos no momento."}
+
     rag_service = get_rag_service()
+
     # Salvar temporariamente
     os.makedirs("./temp", exist_ok=True)
     temp_path = f"./temp/{file.filename}"
     with open(temp_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
     try:
         # Extrair texto do PDF
         full_text = ""
@@ -82,6 +86,7 @@ async def upload_document(
                 text = page.extract_text()
                 if text:
                     full_text += text + "\n"
+
         # Ingerir no RAG
         metadata = {"source": file.filename, "title": title, "year": year}
         res = rag_service.ingest_document(full_text, metadata)
@@ -92,7 +97,7 @@ async def upload_document(
 @router.post("/autonomous-research")
 async def trigger_autonomous_research(topic: str = "Type 1 Diabetes breakthrough"):
     """
-    Aciona o agente pesquisador para buscar artigos científicos na web e PubMed.
+    Aciona o agente pesquisador para buscar artigos cientificos na web e PubMed.
     """
     research_service = get_research_service()
     result = await research_service.run_autonomous_research(topic)
@@ -101,13 +106,13 @@ async def trigger_autonomous_research(topic: str = "Type 1 Diabetes breakthrough
 @router.delete("/clear-knowledge")
 async def clear_knowledge():
     """
-    Limpa a base de conhecimento (Vector Store) para recomeçar.
+    Limpa a base de conhecimento (Vector Store) para recomecar.
     """
     rag_service = get_rag_service()
     if rag_service.client.collection_exists(rag_service.collection_name):
         rag_service.client.delete_collection(rag_service.collection_name)
-        rag_service.client.create_collection(
-            collection_name=rag_service.collection_name,
-            vectors_config={"size": 3072, "distance": "Cosine"},
-        )
+    rag_service.client.create_collection(
+        collection_name=rag_service.collection_name,
+        vectors_config={"size": 3072, "distance": "Cosine"},
+    )
     return {"message": "Base de conhecimento resetada com sucesso."}
