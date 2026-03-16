@@ -1,6 +1,7 @@
 import os
 import random
 import json
+import asyncio
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,14 +21,11 @@ app.add_middleware(
 
 security = HTTPBearer(auto_error=False)
 
-
 class ChatRequest(BaseModel):
     message: str
 
-
 class ChatResponse(BaseModel):
     response: str
-
 
 class LogEntry(BaseModel):
     id: int
@@ -35,13 +33,11 @@ class LogEntry(BaseModel):
     value: float
     type: str
 
-
 class PredictResponse(BaseModel):
     prediction: str
     confidence: float
     next_glucose: float
     trend: str
-
 
 class WorkoutProfile(BaseModel):
     goal: str
@@ -50,21 +46,17 @@ class WorkoutProfile(BaseModel):
     age: Optional[int] = 30
     weight: Optional[float] = 70.0
 
-
 class AuthRequest(BaseModel):
     phone: str
-
 
 class VerifyRequest(BaseModel):
     phone: str
     code: str
 
-
 class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user_id: Optional[str] = None
-
 
 DIABETES_RESPONSES = [
     "Mantenha a glicemia entre 80-180 mg/dL durante exercicios.",
@@ -101,7 +93,6 @@ WORKOUT_TEMPLATES = {
     ],
 }
 
-
 async def call_gemini(prompt: str, system: str = "") -> str:
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
@@ -115,19 +106,25 @@ async def call_gemini(prompt: str, system: str = "") -> str:
             "contents": [{"parts": [{"text": full_prompt}]}],
             "generationConfig": {"maxOutputTokens": 1000, "temperature": 0.7}
         }
-        async with httpx.AsyncClient(timeout=25.0) as c:
-            r = await c.post(url, json=payload)
+        for attempt in range(3):
+            async with httpx.AsyncClient(timeout=25.0) as c:
+                r = await c.post(url, json=payload)
             data = r.json()
             print(f"Gemini status: {r.status_code}, keys: {list(data.keys())}")
+            if r.status_code == 429:
+                wait = 2 ** attempt
+                print(f"Gemini 429 rate limit, aguardando {wait}s...")
+                await asyncio.sleep(wait)
+                continue
             if "candidates" in data:
                 return data["candidates"][0]["content"]["parts"][0]["text"]
             elif "error" in data:
                 print(f"Gemini API error: {data['error']}")
                 return ""
+        return ""
     except Exception as e:
         print(f"Gemini exception: {e}")
         return ""
-
 
 @app.post("/api/auth/send-otp")
 async def send_otp(req: AuthRequest):
@@ -142,12 +139,11 @@ async def send_otp(req: AuthRequest):
                     headers={"apikey": supabase_key, "Content-Type": "application/json"},
                     json={"phone": req.phone}
                 )
-                if r.status_code == 200:
-                    return {"message": "OTP enviado", "demo": False}
+            if r.status_code == 200:
+                return {"message": "OTP enviado", "demo": False}
         except Exception as e:
             print(f"Supabase OTP error: {e}")
     return {"message": "OTP enviado (demo: use 000000)", "demo": True}
-
 
 @app.post("/api/auth/verify-otp", response_model=AuthResponse)
 async def verify_otp(req: VerifyRequest):
@@ -162,27 +158,25 @@ async def verify_otp(req: VerifyRequest):
                     headers={"apikey": supabase_key, "Content-Type": "application/json"},
                     json={"phone": req.phone, "token": req.code, "type": "sms"}
                 )
-                if r.status_code == 200:
-                    data = r.json()
-                    return AuthResponse(
-                        access_token=data.get("access_token", "demo-token"),
-                        user_id=data.get("user", {}).get("id")
-                    )
+            if r.status_code == 200:
+                data = r.json()
+                return AuthResponse(
+                    access_token=data.get("access_token", "demo-token"),
+                    user_id=data.get("user", {}).get("id")
+                )
         except Exception as e:
             print(f"Supabase verify error: {e}")
     if req.code == "000000":
         return AuthResponse(access_token="demo-token-2024", user_id="demo-user")
     raise HTTPException(status_code=401, detail="Codigo invalido")
 
-
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, creds: HTTPAuthorizationCredentials = Depends(security)):
-    system = "Voce e um assistente especialista em diabetes. Responda sempre em portugues de forma clara e util. Seja conciso e empatiico."
+    system = "Voce e um assistente especialista em diabetes. Responda sempre em portugues de forma clara e util. Seja conciso e empatico."
     reply = await call_gemini(req.message, system)
     if reply:
         return ChatResponse(response=reply)
     return ChatResponse(response=f"[Demo] {random.choice(DIABETES_RESPONSES)}")
-
 
 @app.get("/api/logs", response_model=List[LogEntry])
 async def get_logs(creds: HTTPAuthorizationCredentials = Depends(security)):
@@ -197,7 +191,6 @@ async def get_logs(creds: HTTPAuthorizationCredentials = Depends(security)):
         for i in range(12)
     ]
 
-
 @app.get("/api/predict", response_model=PredictResponse)
 async def predict(creds: HTTPAuthorizationCredentials = Depends(security)):
     g = random.randint(100, 140)
@@ -208,7 +201,6 @@ async def predict(creds: HTTPAuthorizationCredentials = Depends(security)):
         trend="estavel"
     )
 
-
 @app.post("/api/workout/generate")
 async def generate_workout(profile: WorkoutProfile, creds: HTTPAuthorizationCredentials = Depends(security)):
     glucose_val = int(profile.glucose) if profile.glucose.isdigit() else 120
@@ -218,8 +210,7 @@ async def generate_workout(profile: WorkoutProfile, creds: HTTPAuthorizationCred
         grec = f"Glicemia {glucose_val} mg/dL - evite exercicio intenso. Consulte medico."
     else:
         grec = f"Glicemia {glucose_val} mg/dL - ideal para treino. Hidrate-se bem."
-
-    system = "Personal trainer especialista em diabetes. Retorne APENAS JSON valido, sem texto extra, sem markdown, sem ```."
+    system = "Personal trainer especialista em diabetes. Retorne APENAS JSON valido, sem texto extra, sem markdown, sem backticks."
     prompt = (
         f"Crie um treino de {profile.goal} para nivel {profile.level}, "
         f"glicemia {profile.glucose} mg/dL, idade {profile.age}, peso {profile.weight}kg. "
@@ -235,7 +226,6 @@ async def generate_workout(profile: WorkoutProfile, creds: HTTPAuthorizationCred
             return json.loads(clean)
         except Exception as e:
             print(f"Gemini workout JSON error: {e} | reply[:200]: {reply[:200]}")
-
     dur = {"iniciante": "40 min", "intermediario": "55 min", "avancado": "70 min"}
     exs = WORKOUT_TEMPLATES.get(profile.goal, WORKOUT_TEMPLATES["hipertrofia"])
     return {
@@ -247,11 +237,9 @@ async def generate_workout(profile: WorkoutProfile, creds: HTTPAuthorizationCred
         "coach_tip": f"Para {profile.goal}: hidrate-se, monitore a glicemia e descanse adequadamente."
     }
 
-
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "DiabeticAssistant API", "version": "2.3-gemini"}
-
+    return {"status": "ok", "service": "DiabeticAssistant API", "version": "2.4-gemini-retry"}
 
 @app.get("/health")
 async def health():
