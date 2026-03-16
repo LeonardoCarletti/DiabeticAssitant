@@ -110,7 +110,7 @@ async def call_gemini(prompt: str, system: str = "") -> str:
     try:
         import httpx
         full_prompt = f"{system}\n\n{prompt}" if system else prompt
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
         payload = {
             "contents": [{"parts": [{"text": full_prompt}]}],
             "generationConfig": {"maxOutputTokens": 1000, "temperature": 0.7}
@@ -123,7 +123,7 @@ async def call_gemini(prompt: str, system: str = "") -> str:
                 return data["candidates"][0]["content"]["parts"][0]["text"]
             elif "error" in data:
                 print(f"Gemini API error: {data['error']}")
-            return ""
+                return ""
     except Exception as e:
         print(f"Gemini exception: {e}")
         return ""
@@ -218,6 +218,7 @@ async def generate_workout(profile: WorkoutProfile, creds: HTTPAuthorizationCred
         grec = f"Glicemia {glucose_val} mg/dL - evite exercicio intenso. Consulte medico."
     else:
         grec = f"Glicemia {glucose_val} mg/dL - ideal para treino. Hidrate-se bem."
+
     system = "Personal trainer especialista em diabetes. Retorne APENAS JSON valido, sem texto extra, sem markdown, sem ```."
     prompt = (
         f"Crie um treino de {profile.goal} para nivel {profile.level}, "
@@ -234,6 +235,7 @@ async def generate_workout(profile: WorkoutProfile, creds: HTTPAuthorizationCred
             return json.loads(clean)
         except Exception as e:
             print(f"Gemini workout JSON error: {e} | reply[:200]: {reply[:200]}")
+
     dur = {"iniciante": "40 min", "intermediario": "55 min", "avancado": "70 min"}
     exs = WORKOUT_TEMPLATES.get(profile.goal, WORKOUT_TEMPLATES["hipertrofia"])
     return {
@@ -248,9 +250,9 @@ async def generate_workout(profile: WorkoutProfile, creds: HTTPAuthorizationCred
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "DiabeticAssistant API", "version": "2.2-gemini"}
+    return {"status": "ok", "service": "DiabeticAssistant API", "version": "2.3-gemini"}
 
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "ai": "gemini-1.5-flash"}
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "ai": "gemini-2.0-flash"}
