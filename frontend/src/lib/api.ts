@@ -25,37 +25,68 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   return res.json() as Promise<T>;
 }
 
-interface OtpRequestResponse { message: string }
-interface OtpVerifyResponse { access_token: string; user_id?: string }
-interface ChatResponse { response: string }
-interface LogEntry { id: number; timestamp: string; value: number }
-interface PredictiveResponse { prediction: string; confidence: number }
-
-export function requestOtp(phone: string): Promise<OtpRequestResponse> {
-  return apiFetch<OtpRequestResponse>('/auth/otp/request', {
+// ── Auth ────────────────────────────────────────────────
+export async function requestOtp(phone: string): Promise<{ message: string; status: string }> {
+  return apiFetch('/auth/otp/request', {
     method: 'POST',
     body: JSON.stringify({ phone }),
   });
 }
 
-export function verifyOtp(phone: string, code: string): Promise<OtpVerifyResponse> {
-  return apiFetch<OtpVerifyResponse>('/auth/otp/verify', {
+export async function verifyOtp(phone: string, code: string): Promise<{
+  access_token: string;
+  user_id: string;
+  role: string;
+}> {
+  return apiFetch('/auth/otp/verify', {
     method: 'POST',
     body: JSON.stringify({ phone, code }),
   });
 }
 
-export function chatWithResearcher(message: string): Promise<ChatResponse> {
-  return apiFetch<ChatResponse>('/api/chat', {
+// ── Chat ────────────────────────────────────────────────
+export async function chatWithResearcher(message: string): Promise<{ response: string }> {
+  return apiFetch('/api/chat', {
     method: 'POST',
     body: JSON.stringify({ message }),
   });
 }
 
-export function getLogs(): Promise<LogEntry[]> {
-  return apiFetch<LogEntry[]>('/api/logs');
+// ── Logs ────────────────────────────────────────────────
+export async function getLogs(): Promise<Array<{
+  id: number;
+  timestamp: string;
+  value: number;
+  type: string;
+}>> {
+  return apiFetch('/api/logs');
 }
 
-export function getPredictiveAnalysis(): Promise<PredictiveResponse> {
-  return apiFetch<PredictiveResponse>('/api/predict');
+// ── Predict ──────────────────────────────────────────────
+export async function getPredictiveAnalysis(): Promise<{
+  prediction: string;
+  confidence: number;
+  next_glucose: number;
+  trend: string;
+}> {
+  return apiFetch('/api/predict');
+}
+
+// ── Workout ──────────────────────────────────────────────
+export async function generateWorkout(profile: {
+  level: string;
+  goal: string;
+  glucose: string;
+}): Promise<{
+  title: string;
+  duration: string;
+  level: string;
+  glucose_recommendation: string;
+  exercises: Array<{ name: string; sets: string; reps: string; rest: string; notes?: string }>;
+  coach_tip: string;
+}> {
+  return apiFetch('/api/workout/generate', {
+    method: 'POST',
+    body: JSON.stringify(profile),
+  });
 }
