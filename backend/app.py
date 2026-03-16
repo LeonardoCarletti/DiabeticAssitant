@@ -1,20 +1,24 @@
 """Vercel serverless entry point - Diabetic Assistant Backend.
-App FastAPI minimo com routes essenciais sem dependencias pesadas.
-Incui: auth (OTP), chat (OpenAI com fallback), logs e predict.
+App FastAPI consolidado com routes: auth, chat, workouts, logs e predict.
 """
 import os
+import sys
 import random
 from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+
+# Add current dir to sys.path to allow imports from api.*
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from api.auth_routes import router as auth_router
 
 app = FastAPI(
     title="Diabetic Assistant API",
     description="API for the Personal Diabetics Assistant",
-    version="1.0.0"
+    version="1.1.0"
 )
 
 app.add_middleware(
@@ -25,15 +29,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# auth_routes.py ja define prefix="/auth" internamente
+# ── Routers ──────────────────────────────────────────────────────
 app.include_router(auth_router)
+
+# Import workout router with safety check for dependencies
+try:
+    from api.workout_routes import router as workout_router
+    app.include_router(workout_router)
+except Exception as e:
+    print(f"Warning: Could not load workout_router: {e}")
 
 security = HTTPBearer(auto_error=False)
 
-# ──────────────────────────────────────────
-# Modelos
-# ──────────────────────────────────────────
-
+# ── Models ────────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
     message: str
 
@@ -52,33 +60,26 @@ class PredictResponse(BaseModel):
     next_glucose: float
     trend: str
 
-# ──────────────────────────────────────────
-# Endpoints utilitarios
-# ──────────────────────────────────────────
-
+# ── Endpoints ────────────────────────────────────────────────────
 @app.get("/")
 def root():
-    return {"status": "ok", "service": "Diabetic Assistant API", "version": "1.0.0"}
+    return {"status": "ok", "service": "Diabetic Assistant API", "version": "1.1.0"}
 
 @app.get("/health")
 def health():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
-# ──────────────────────────────────────────
-# /api/chat - LabMode Chat com IA
-# ──────────────────────────────────────────
-
+# ── /api/chat ────────────────────────────────────────────────────
 DIABETES_RESPONSES = [
-    "Sua glicemia de 120 mg/dL esta dentro do range ideal (80-150). Continue monitorando apos as refeicoes.",
-    "Para diabeticos tipo 1, o ideal e medir a glicemia antes e 2h apos cada refeicao principal.",
-    "A atividade fisica aerobica tende a reduzir a glicemia. Sempre monitore antes e durante o exercicio.",
-    "Carboidratos de alto indice glicemico elevam a glicemia rapidamente. Prefira carboidratos complexos.",
-    "O estresse pode elevar a glicemia. Tecnicas de respiracao e mindfulness ajudam no controle.",
-    "Hipoglicemia (abaixo de 70 mg/dL): consuma 15g de carboidrato de rapida absorcao imediatamente.",
-    "Hiperglicemia acima de 250 mg/dL requer atencao medica. Hidratacao e ajuste de insulina sao essenciais.",
-    "O sono de qualidade influencia diretamente a sensibilidade a insulina e o controle glicemico.",
-    "Registrar refeicoes, doses de insulina e glicemias ajuda a identificar padroes e otimizar o controle.",
-    "A hemoglobina glicada (HbA1c) reflete o controle medio dos ultimos 3 meses. O alvo usual e abaixo de 7%.",
+    "Sua glicemia de 120 mg/dL esta dentro do range ideal (80-150).",
+    "Para diabeticos tipo 1, o ideal e medir a glicemia antes e 2h apos cada refeicao.",
+    "A atividade fisica aerobica tende a reduzir a glicemia.",
+    "Carboidratos de alto indice glicemico elevam a glicemia rapidamente.",
+    "O estresse pode elevar a glicemia via cortisol.",
+    "Hipoglicemia (abaixo de 70 mg/dL): use a regra dos 15g de carbo.",
+    "Hiperglicemia acima de 250 mg/dL requer atencao redobrada.",
+    "O sono de qualidade influencia a sensibilidade a insulina.",
+    "A hemoglobina glicada (HbA1c) reflete o controle dos ultimos 3 meses.",
 ]
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -86,9 +87,7 @@ async def chat_with_researcher(
     request: ChatRequest,
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
-    """Chat com o assistente de diabetes. Usa OpenAI se configurado, caso contrario retorna resposta educativa."""
     openai_key = os.environ.get("OPENAI_API_KEY", "")
-
     if openai_key:
         try:
             import httpx
@@ -99,83 +98,39 @@ async def chat_with_researcher(
                     json={
                         "model": "gpt-4o-mini",
                         "messages": [
-                            {"role": "system", "content": "Voce e um assistente especializado em diabetes. Responda em portugues brasileiro de forma clara, objetiva e empatica. Baseie suas respostas em evidencias medicas atuais. Nunca substitua orientacao medica profissional."},
+                            {"role": "system", "content": "Voce e um assistente especializado em diabetes e treinos. Responda em PT-BR de forma clara e empatica."},
                             {"role": "user", "content": request.message}
                         ],
-                        "max_tokens": 500,
-                        "temperature": 0.7
+                        "max_tokens": 500
                     }
                 )
                 data = resp.json()
-                ai_response = data["choices"][0]["message"]["content"]
-                return ChatResponse(response=ai_response)
+                return ChatResponse(response=data["choices"][0]["message"]["content"])
         except Exception:
             pass
+    
+    # Fallback
+    return ChatResponse(response=f"[Modo Demo] {random.choice(DIABETES_RESPONSES)}")
 
-    # Fallback: resposta educativa baseada em keywords
-    msg_lower = request.message.lower()
-    if any(w in msg_lower for w in ["hipoglicemia", "baixa", "baixo", "70"]):
-        response = DIABETES_RESPONSES[5]
-    elif any(w in msg_lower for w in ["hiperglicemia", "alta", "alto", "250", "300"]):
-        response = DIABETES_RESPONSES[6]
-    elif any(w in msg_lower for w in ["exercicio", "treino", "academia", "corrida"]):
-        response = DIABETES_RESPONSES[3]
-    elif any(w in msg_lower for w in ["insulina", "dose", "basal", "bolus"]):
-        response = DIABETES_RESPONSES[1]
-    elif any(w in msg_lower for w in ["hba1c", "hemoglobina", "glicada"]):
-        response = DIABETES_RESPONSES[9]
-    elif any(w in msg_lower for w in ["sono", "dormir", "descanso"]):
-        response = DIABETES_RESPONSES[7]
-    elif any(w in msg_lower for w in ["carboidrato", "carbo", "comida", "refeicao"]):
-        response = DIABETES_RESPONSES[3]
-    else:
-        response = random.choice(DIABETES_RESPONSES)
-
-    return ChatResponse(response=f"[Modo Demo] {response}")
-
-# ──────────────────────────────────────────
-# /api/logs - Historico de glicemia
-# ──────────────────────────────────────────
-
+# ── /api/logs ────────────────────────────────────────────────────
 @app.get("/api/logs", response_model=list[LogEntry])
-async def get_logs(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-):
-    """Retorna historico de registros de glicemia. Mock para demo."""
+async def get_logs(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    # Mock data - Real integration with Supabase needed in separate service
     now = datetime.utcnow()
-    logs = []
-    base_glucose = 110
-    for i in range(24):
-        ts = now - timedelta(hours=i)
-        variation = random.randint(-30, 40)
-        logs.append(LogEntry(
-            id=i + 1,
-            timestamp=ts.isoformat(),
-            value=max(60, min(300, base_glucose + variation)),
-            type="glucose"
-        ))
+    logs = [
+        LogEntry(id=i, timestamp=(now - timedelta(hours=i)).isoformat(), 
+                 value=random.randint(80, 160), type="glucose")
+        for i in range(12)
+    ]
     return logs
 
-# ──────────────────────────────────────────
-# /api/predict - Analise preditiva
-# ──────────────────────────────────────────
-
+# ── /api/predict ─────────────────────────────────────────────────
 @app.get("/api/predict", response_model=PredictResponse)
-async def get_predictive_analysis(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-):
-    """Analise preditiva da glicemia. Mock para demo."""
-    current = random.randint(90, 140)
-    next_g = current + random.randint(-15, 25)
-    trend = "estavel"
-    if next_g > current + 10:
-        trend = "subindo"
-    elif next_g < current - 10:
-        trend = "descendo"
-
+async def get_predictive_analysis(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current = random.randint(100, 140)
     return PredictResponse(
-        prediction=f"Glicemia projetada para proxima hora: {next_g} mg/dL",
-        confidence=round(random.uniform(0.72, 0.91), 2),
-        next_glucose=next_g,
-        trend=trend
+        prediction=f"Glicemia projetada: {current + 5} mg/dL",
+        confidence=0.85,
+        next_glucose=current + 5,
+        trend="estavel"
     )
