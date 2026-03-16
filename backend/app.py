@@ -1,25 +1,14 @@
-"""Vercel serverless entry point - Diabetic Assistant Backend.
-App FastAPI consolidado com routes: auth, chat, workouts, logs e predict.
-"""
 import os
-import sys
 import random
+import json
 from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+from typing import Optional, List
 
-# Add current dir to sys.path to allow imports from api.*
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from api.auth_routes import router as auth_router
-
-app = FastAPI(
-    title="Diabetic Assistant API",
-    description="API for the Personal Diabetics Assistant",
-    version="1.1.0"
-)
+app = FastAPI(title="DiabeticAssistant API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,24 +18,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routers ──────────────────────────────────────────────────────
-app.include_router(auth_router)
-
-# Import workout router with safety check for dependencies
-try:
-    from api.workout_routes import router as workout_router
-    app.include_router(workout_router)
-except Exception as e:
-    print(f"Warning: Could not load workout_router: {e}")
-
 security = HTTPBearer(auto_error=False)
 
-# ── Models ────────────────────────────────────────────────────────
+
 class ChatRequest(BaseModel):
     message: str
 
+
 class ChatResponse(BaseModel):
     response: str
+
 
 class LogEntry(BaseModel):
     id: int
@@ -54,83 +35,221 @@ class LogEntry(BaseModel):
     value: float
     type: str
 
+
 class PredictResponse(BaseModel):
     prediction: str
     confidence: float
     next_glucose: float
     trend: str
 
-# ── Endpoints ────────────────────────────────────────────────────
-@app.get("/")
-def root():
-    return {"status": "ok", "service": "Diabetic Assistant API", "version": "1.1.0"}
 
-@app.get("/health")
-def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+class WorkoutProfile(BaseModel):
+    goal: str
+    level: str
+    glucose: str
+    age: Optional[int] = 30
+    weight: Optional[float] = 70.0
 
-# ── /api/chat ────────────────────────────────────────────────────
+
+class AuthRequest(BaseModel):
+    phone: str
+
+
+class VerifyRequest(BaseModel):
+    phone: str
+    code: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: Optional[str] = None
+
+
 DIABETES_RESPONSES = [
-    "Sua glicemia de 120 mg/dL esta dentro do range ideal (80-150).",
-    "Para diabeticos tipo 1, o ideal e medir a glicemia antes e 2h apos cada refeicao.",
-    "A atividade fisica aerobica tende a reduzir a glicemia.",
-    "Carboidratos de alto indice glicemico elevam a glicemia rapidamente.",
-    "O estresse pode elevar a glicemia via cortisol.",
-    "Hipoglicemia (abaixo de 70 mg/dL): use a regra dos 15g de carbo.",
-    "Hiperglicemia acima de 250 mg/dL requer atencao redobrada.",
-    "O sono de qualidade influencia a sensibilidade a insulina.",
-    "A hemoglobina glicada (HbA1c) reflete o controle dos ultimos 3 meses.",
+    "Mantenha a glicemia entre 80-180 mg/dL durante exercicios.",
+    "Beba agua regularmente para ajudar no controle glicemico.",
+    "Monitore sua glicemia antes e apos as refeicoes.",
+    "Exercicios aerobicos ajudam a reduzir a resistencia a insulina.",
+    "Consulte seu medico antes de iniciar novos exercicios.",
+    "Carboidratos complexos sao melhores para controle glicemico.",
+    "O estresse pode elevar a glicemia - pratique relaxamento.",
+    "Sono adequado e essencial para o controle do diabetes.",
 ]
 
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat_with_researcher(
-    request: ChatRequest,
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-):
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    if openai_key:
+WORKOUT_TEMPLATES = {
+    "hipertrofia": [
+        {"name": "Supino Reto", "sets": 4, "reps": "8-12", "rest": "90s", "notes": "Controle o movimento"},
+        {"name": "Agachamento", "sets": 4, "reps": "8-10", "rest": "120s", "notes": "Profundidade completa"},
+        {"name": "Remada Curvada", "sets": 3, "reps": "10-12", "rest": "90s", "notes": "Costas retas"},
+        {"name": "Desenvolvimento", "sets": 3, "reps": "10-12", "rest": "60s", "notes": "Amplitude total"},
+        {"name": "Rosca Direta", "sets": 3, "reps": "12-15", "rest": "60s", "notes": "Sem balanco"},
+    ],
+    "emagrecimento": [
+        {"name": "Burpee", "sets": 4, "reps": "15", "rest": "60s", "notes": "Maximo de intensidade"},
+        {"name": "Mountain Climber", "sets": 3, "reps": "20", "rest": "45s", "notes": "Core ativo"},
+        {"name": "Agachamento Sumo", "sets": 4, "reps": "15", "rest": "60s", "notes": "Joelhos para fora"},
+        {"name": "Polichinelo", "sets": 3, "reps": "30", "rest": "30s", "notes": "Ritmo constante"},
+        {"name": "Prancha", "sets": 3, "reps": "45s", "rest": "30s", "notes": "Corpo alinhado"},
+    ],
+    "resistencia": [
+        {"name": "Corrida Leve", "sets": 1, "reps": "20min", "rest": "0s", "notes": "Ritmo moderado"},
+        {"name": "Ciclismo", "sets": 1, "reps": "15min", "rest": "0s", "notes": "Cadencia constante"},
+        {"name": "Pulo Corda", "sets": 5, "reps": "2min", "rest": "30s", "notes": "Ritmo uniforme"},
+        {"name": "Agachamento 20rep", "sets": 3, "reps": "20", "rest": "45s", "notes": "Sem parar"},
+        {"name": "Flexao Continua", "sets": 3, "reps": "15-20", "rest": "45s", "notes": "Lento e controlado"},
+    ],
+}
+
+
+@app.post("/api/auth/send-otp")
+async def send_otp(req: AuthRequest):
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_ANON_KEY", "")
+    if supabase_url and supabase_key:
         try:
             import httpx
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(
+            async with httpx.AsyncClient(timeout=10.0) as c:
+                r = await c.post(
+                    f"{supabase_url}/auth/v1/otp",
+                    headers={"apikey": supabase_key, "Content-Type": "application/json"},
+                    json={"phone": req.phone}
+                )
+                if r.status_code == 200:
+                    return {"message": "OTP enviado", "demo": False}
+        except Exception as e:
+            print(f"Supabase OTP error: {e}")
+    return {"message": "OTP enviado (demo: use 000000)", "demo": True}
+
+
+@app.post("/api/auth/verify-otp", response_model=AuthResponse)
+async def verify_otp(req: VerifyRequest):
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_ANON_KEY", "")
+    if supabase_url and supabase_key:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10.0) as c:
+                r = await c.post(
+                    f"{supabase_url}/auth/v1/verify",
+                    headers={"apikey": supabase_key, "Content-Type": "application/json"},
+                    json={"phone": req.phone, "token": req.code, "type": "sms"}
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    return AuthResponse(
+                        access_token=data.get("access_token", "demo-token"),
+                        user_id=data.get("user", {}).get("id")
+                    )
+        except Exception as e:
+            print(f"Supabase verify error: {e}")
+    if req.code == "000000":
+        return AuthResponse(access_token="demo-token-2024", user_id="demo-user")
+    raise HTTPException(status_code=401, detail="Codigo invalido")
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest, creds: HTTPAuthorizationCredentials = Depends(security)):
+    key = os.environ.get("OPENAI_API_KEY", "")
+    if key:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15.0) as c:
+                r = await c.post(
                     "https://api.openai.com/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
+                    headers={"Authorization": f"Bearer {key}"},
                     json={
                         "model": "gpt-4o-mini",
+                        "max_tokens": 500,
                         "messages": [
-                            {"role": "system", "content": "Voce e um assistente especializado em diabetes e treinos. Responda em PT-BR de forma clara e empatica."},
-                            {"role": "user", "content": request.message}
-                        ],
-                        "max_tokens": 500
+                            {"role": "system", "content": "Voce e um assistente especialista em diabetes. Responda sempre em portugues."},
+                            {"role": "user", "content": req.message}
+                        ]
                     }
                 )
-                data = resp.json()
-                return ChatResponse(response=data["choices"][0]["message"]["content"])
+                return ChatResponse(response=r.json()["choices"][0]["message"]["content"])
         except Exception:
             pass
-    
-    # Fallback
-    return ChatResponse(response=f"[Modo Demo] {random.choice(DIABETES_RESPONSES)}")
+    return ChatResponse(response=f"[Demo] {random.choice(DIABETES_RESPONSES)}")
 
-# ── /api/logs ────────────────────────────────────────────────────
-@app.get("/api/logs", response_model=list[LogEntry])
-async def get_logs(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    # Mock data - Real integration with Supabase needed in separate service
+
+@app.get("/api/logs", response_model=List[LogEntry])
+async def get_logs(creds: HTTPAuthorizationCredentials = Depends(security)):
     now = datetime.utcnow()
-    logs = [
-        LogEntry(id=i, timestamp=(now - timedelta(hours=i)).isoformat(), 
-                 value=random.randint(80, 160), type="glucose")
+    return [
+        LogEntry(
+            id=i,
+            timestamp=(now - timedelta(hours=i)).isoformat(),
+            value=random.randint(80, 160),
+            type="glucose"
+        )
         for i in range(12)
     ]
-    return logs
 
-# ── /api/predict ─────────────────────────────────────────────────
+
 @app.get("/api/predict", response_model=PredictResponse)
-async def get_predictive_analysis(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    current = random.randint(100, 140)
+async def predict(creds: HTTPAuthorizationCredentials = Depends(security)):
+    g = random.randint(100, 140)
     return PredictResponse(
-        prediction=f"Glicemia projetada: {current + 5} mg/dL",
+        prediction=f"Glicemia projetada: {g + 5} mg/dL",
         confidence=0.85,
-        next_glucose=current + 5,
+        next_glucose=g + 5,
         trend="estavel"
     )
+
+
+@app.post("/api/workout/generate")
+async def generate_workout(profile: WorkoutProfile, creds: HTTPAuthorizationCredentials = Depends(security)):
+    glucose_val = int(profile.glucose) if profile.glucose.isdigit() else 120
+    if glucose_val < 100:
+        grec = f"Glicemia {glucose_val} mg/dL - consuma 15g de carbo antes de treinar."
+    elif glucose_val > 250:
+        grec = f"Glicemia {glucose_val} mg/dL - evite exercicio intenso. Consulte medico."
+    else:
+        grec = f"Glicemia {glucose_val} mg/dL - ideal para treino. Hidrate-se bem."
+    key = os.environ.get("OPENAI_API_KEY", "")
+    if key:
+        try:
+            import httpx
+            prompt = (
+                f"Crie um treino de {profile.goal} para nivel {profile.level}, "
+                f"glicemia {profile.glucose} mg/dL, idade {profile.age}, peso {profile.weight}kg. "
+                "Retorne JSON com: title, duration, level, glucose_recommendation, "
+                "exercises (array com name,sets,reps,rest,notes), coach_tip. Apenas JSON valido."
+            )
+            async with httpx.AsyncClient(timeout=20.0) as c:
+                r = await c.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {key}"},
+                    json={
+                        "model": "gpt-4o-mini",
+                        "max_tokens": 1000,
+                        "messages": [
+                            {"role": "system", "content": "Personal trainer especialista em diabetes. Retorne JSON valido apenas."},
+                            {"role": "user", "content": prompt}
+                        ]
+                    }
+                )
+                return json.loads(r.json()["choices"][0]["message"]["content"])
+        except Exception as e:
+            print(f"Workout OpenAI error: {e}")
+    dur = {"iniciante": "40 min", "intermediario": "55 min", "avancado": "70 min"}
+    exs = WORKOUT_TEMPLATES.get(profile.goal, WORKOUT_TEMPLATES["hipertrofia"])
+    return {
+        "title": f"Treino de {profile.goal.capitalize()} - {profile.level.capitalize()}",
+        "duration": dur.get(profile.level, "55 min"),
+        "level": profile.level,
+        "glucose_recommendation": grec,
+        "exercises": exs,
+        "coach_tip": f"Para {profile.goal}: hidrate-se, monitore a glicemia e descanse adequadamente."
+    }
+
+
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "DiabeticAssistant API", "version": "2.0"}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
