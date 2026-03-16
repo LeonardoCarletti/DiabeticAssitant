@@ -1,8 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL: string = (import.meta.env.VITE_API_URL as string) || '';
 
 let authToken = '';
 
-export function setToken(token: string) {
+export function setToken(token: string): void {
   authToken = token;
 }
 
@@ -10,30 +10,36 @@ export function getToken(): string {
   return authToken;
 }
 
-async function apiFetch(path: string, options: RequestInit = {}) {
+type ApiResponse = Record<string, unknown>;
+
+async function apiFetch(path: string, options: RequestInit = {}): Promise<ApiResponse> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      ...(options.headers as Record<string, string> || {}),
-    },
+    headers,
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { detail?: string }).detail || 'Erro na requisicao');
+    const err = await res.json().catch(() => ({})) as { detail?: string };
+    throw new Error(err.detail ?? 'Erro na requisicao');
   }
-  return res.json();
+  return res.json() as Promise<ApiResponse>;
 }
 
-export const requestOtp = (phone: string) =>
-  apiFetch('/auth/otp/request', {
+export function requestOtp(phone: string): Promise<ApiResponse> {
+  return apiFetch('/auth/otp/request', {
     method: 'POST',
     body: JSON.stringify({ phone }),
   });
+}
 
-export const verifyOtp = (phone: string, code: string) =>
-  apiFetch('/auth/otp/verify', {
+export function verifyOtp(phone: string, code: string): Promise<ApiResponse> {
+  return apiFetch('/auth/otp/verify', {
     method: 'POST',
     body: JSON.stringify({ phone, code }),
   });
+}
