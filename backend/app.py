@@ -101,29 +101,31 @@ WORKOUT_TEMPLATES = {
     ],
 }
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-
 
 async def call_gemini(prompt: str, system: str = "") -> str:
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
+        print("Gemini: no API key found")
         return ""
     try:
         import httpx
-        contents = []
-        if system:
-            contents.append({"role": "user", "parts": [{"text": system}]})
-            contents.append({"role": "model", "parts": [{"text": "Entendido."}]})
-        contents.append({"role": "user", "parts": [{"text": prompt}]})
-        async with httpx.AsyncClient(timeout=20.0) as c:
-            r = await c.post(
-                f"{GEMINI_URL}?key={key}",
-                json={"contents": contents, "generationConfig": {"maxOutputTokens": 1000}}
-            )
+        full_prompt = f"{system}\n\n{prompt}" if system else prompt
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+        payload = {
+            "contents": [{"parts": [{"text": full_prompt}]}],
+            "generationConfig": {"maxOutputTokens": 1000, "temperature": 0.7}
+        }
+        async with httpx.AsyncClient(timeout=25.0) as c:
+            r = await c.post(url, json=payload)
             data = r.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+            print(f"Gemini status: {r.status_code}, keys: {list(data.keys())}")
+            if "candidates" in data:
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            elif "error" in data:
+                print(f"Gemini API error: {data['error']}")
+            return ""
     except Exception as e:
-        print(f"Gemini error: {e}")
+        print(f"Gemini exception: {e}")
         return ""
 
 
@@ -175,7 +177,7 @@ async def verify_otp(req: VerifyRequest):
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, creds: HTTPAuthorizationCredentials = Depends(security)):
-    system = "Voce e um assistente especialista em diabetes. Responda sempre em portugues de forma clara, util e empatiica. Seja conciso."
+    system = "Voce e um assistente especialista em diabetes. Responda sempre em portugues de forma clara e util. Seja conciso e empatiico."
     reply = await call_gemini(req.message, system)
     if reply:
         return ChatResponse(response=reply)
@@ -216,21 +218,22 @@ async def generate_workout(profile: WorkoutProfile, creds: HTTPAuthorizationCred
         grec = f"Glicemia {glucose_val} mg/dL - evite exercicio intenso. Consulte medico."
     else:
         grec = f"Glicemia {glucose_val} mg/dL - ideal para treino. Hidrate-se bem."
+    system = "Personal trainer especialista em diabetes. Retorne APENAS JSON valido, sem texto extra, sem markdown, sem ```."
     prompt = (
         f"Crie um treino de {profile.goal} para nivel {profile.level}, "
         f"glicemia {profile.glucose} mg/dL, idade {profile.age}, peso {profile.weight}kg. "
-        "Retorne APENAS um JSON valido (sem markdown, sem ```json) com: "
-        "title (string), duration (string), level (string), glucose_recommendation (string), "
-        "exercises (array com objetos name/sets/reps/rest/notes), coach_tip (string)."
+        "Retorne APENAS JSON com: title, duration, level, glucose_recommendation, "
+        "exercises (array com name/sets/reps/rest/notes), coach_tip."
     )
-    system = "Personal trainer especialista em diabetes. Retorne APENAS JSON valido, sem texto extra, sem markdown."
     reply = await call_gemini(prompt, system)
     if reply:
         try:
-            clean = reply.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+            clean = reply.strip()
+            if clean.startswith("```"):
+                clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             return json.loads(clean)
         except Exception as e:
-            print(f"Gemini JSON parse error: {e} | reply: {reply[:200]}")
+            print(f"Gemini workout JSON error: {e} | reply[:200]: {reply[:200]}")
     dur = {"iniciante": "40 min", "intermediario": "55 min", "avancado": "70 min"}
     exs = WORKOUT_TEMPLATES.get(profile.goal, WORKOUT_TEMPLATES["hipertrofia"])
     return {
@@ -245,9 +248,9 @@ async def generate_workout(profile: WorkoutProfile, creds: HTTPAuthorizationCred
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "DiabeticAssistant API", "version": "2.1-gemini"}
+    return {"status": "ok", "service": "DiabeticAssistant API", "version": "2.2-gemini"}
 
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "ai": "gemini"}
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "ai": "gemini-1.5-flash"}
