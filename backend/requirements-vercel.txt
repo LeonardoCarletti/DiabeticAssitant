@@ -1,0 +1,8 @@
+# Requirements minimos para deploy no Vercel (sem libs com dependencias de sistema)
+# Nao inclui: psycopg2-binary, pytesseract, pillow, llama-index, qdrant-client, pdfplumber
+
+fastapi
+uvicorn
+pydantic
+python-dotenv
+httpx
