@@ -53,8 +53,76 @@ export async function chatWithResearcher(message: string): Promise<{ response: s
 }
 
 // ── Logs ──────────────────────────────────────────────
-export async function getLogs(): Promise<Array<Record<string, unknown>>> {
-  return apiFetch('/api/logs');
+export async function getLogs(params?: {
+  range?: '6h' | '24h' | '7d' | '30d';
+  source?: 'manual' | 'cgm' | 'all';
+  granularity?: 'point' | 'hour' | 'day';
+}): Promise<{
+  glucose_events: Array<{
+    measured_at: string;
+    value_mg_dl: number;
+    trend: string;
+    source: string;
+    context: string;
+  }>;
+  stats: {
+    time_range_hours: number;
+    avg_mg_dl: number;
+    min_mg_dl: number;
+    max_mg_dl: number;
+    hypo_events: number;
+    hyper_events: number;
+  };
+}> {
+  const searchParams = new URLSearchParams();
+  if (params?.range) searchParams.set('range', params.range);
+  if (params?.source) searchParams.set('source', params.source);
+  if (params?.granularity) searchParams.set('granularity', params.granularity);
+
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+  return apiFetch(`/api/logs${query}`);
+}
+
+export async function addGlucoseLog(data: {
+  value_mg_dl: number;
+  measured_at: string;
+  source?: string;
+  device_id?: string | null;
+  context?: string;
+  notes?: string;
+  correlation_id?: string | null;
+}): Promise<any> {
+  return apiFetch('/api/logs/glucose', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function addMealLog(data: {
+  name: string;
+  meal_type?: string;
+  eaten_at: string;
+  total_carbs_g?: number;
+  total_protein_g?: number;
+  total_fat_g?: number;
+  estimated?: boolean;
+  notes?: string;
+  items?: Array<{
+    name: string;
+    carbs_g?: number;
+    protein_g?: number;
+    fat_g?: number;
+    portion?: string;
+  }>;
+  linked_glucose_events?: Array<{
+    glucose_event_id: string;
+    relation: string;
+  }>;
+}): Promise<any> {
+  return apiFetch('/api/nutrition/meals', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
 // ── Predict ────────────────────────────────────────────

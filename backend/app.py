@@ -3,7 +3,7 @@ import random
 import json
 import asyncio
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -27,17 +27,87 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
 
-class LogEntry(BaseModel):
-    id: int
-    timestamp: str
-    value: float
-    type: str
-
 class PredictResponse(BaseModel):
     prediction: str
     confidence: float
     next_glucose: float
     trend: str
+
+from typing import Literal
+
+SourceType = Literal["manual", "cgm", "lab", "other"]
+TrendType = Literal["falling", "rising", "stable", "unknown"]
+ContextType = Literal["fasting", "pre_meal", "post_meal", "pre_workout", "post_workout", "bedtime", "random", "other"]
+
+class GlucoseEventOut(BaseModel):
+    id: str
+    measured_at: str
+    value_mg_dl: float
+    trend: TrendType
+    source: SourceType
+    context: ContextType
+    hypo_flag: bool
+    hyper_flag: bool
+
+class TimeInRangeMetrics(BaseModel):
+    target_min_mg_dl: float
+    target_max_mg_dl: float
+    percent_in_range: float
+    percent_below_range: float
+    percent_above_range: float
+
+class DistributionMetrics(BaseModel):
+    manual_count: int
+    cgm_count: int
+
+class GlucoseMetrics(BaseModel):
+    count_events: int
+    avg_mg_dl: Optional[float]
+    min_mg_dl: Optional[float]
+    max_mg_dl: Optional[float]
+    time_in_range: Optional[TimeInRangeMetrics]
+    distribution: Optional[DistributionMetrics]
+
+class GlucoseLogsResponse(BaseModel):
+    range: str
+    granularity: Literal["point", "hour", "day"]
+    glucose_events: List[GlucoseEventOut]
+    metrics: GlucoseMetrics
+
+class GlucoseEventRequest(BaseModel):
+    value_mg_dl: float
+    measured_at: str
+    source: Optional[str] = "manual"
+    device_id: Optional[str] = None
+    context: Optional[str] = "random"
+    notes: Optional[str] = None
+    correlation_id: Optional[str] = None
+
+
+class MealItem(BaseModel):
+    name: str
+    carbs_g: Optional[float] = None
+    protein_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    portion: Optional[str] = None
+
+
+class MealGlucoseLink(BaseModel):
+    glucose_event_id: str
+    relation: str
+
+
+class MealRequest(BaseModel):
+    name: str
+    meal_type: Optional[str] = "other"
+    eaten_at: str
+    total_carbs_g: Optional[float] = None
+    total_protein_g: Optional[float] = None
+    total_fat_g: Optional[float] = None
+    estimated: Optional[bool] = True
+    items: Optional[List[MealItem]] = []
+    notes: Optional[str] = None
+    linked_glucose_events: Optional[List[MealGlucoseLink]] = []
 
 class WorkoutProfile(BaseModel):
     goal: str
@@ -178,18 +248,109 @@ async def chat(req: ChatRequest, creds: HTTPAuthorizationCredentials = Depends(s
         return ChatResponse(response=reply)
     return ChatResponse(response=f"[Demo] {random.choice(DIABETES_RESPONSES)}")
 
-@app.get("/api/logs", response_model=List[LogEntry])
-async def get_logs(creds: HTTPAuthorizationCredentials = Depends(security)):
+@app.post("/api/logs/glucose")
+async def add_glucose_log(req: GlucoseEventRequest, creds: HTTPAuthorizationCredentials = Depends(security)):
+    # Em um ambiente real, pegariamos o user_id do token (creds) e fariamos o INSERT no Supabase aqui
+    # Mockando a resposta de sucesso conforme o payload do Perplexity
+    import uuid
+    from datetime import datetime
+    
+    return {
+        "id": str(uuid.uuid4()),
+        "user_id": "auth-user-uuid",
+        "value_mg_dl": req.value_mg_dl,
+        "trend": "stable",
+        "source": req.source,
+        "context": req.context,
+        "hypo_flag": req.value_mg_dl < 70,
+        "hyper_flag": req.value_mg_dl > 180,
+        "measured_at": req.measured_at,
+        "recorded_at": datetime.utcnow().isoformat(),
+        "notes": req.notes,
+        "correlation_id": req.correlation_id
+    }
+
+
+@app.post("/api/nutrition/meals")
+async def add_meal_log(req: MealRequest, creds: HTTPAuthorizationCredentials = Depends(security)):
+    import uuid
+    from datetime import datetime
+    
+    return {
+        "id": str(uuid.uuid4()),
+        "user_id": "auth-user-uuid",
+        "name": req.name,
+        "meal_type": req.meal_type,
+        "eaten_at": req.eaten_at,
+        "total_carbs_g": req.total_carbs_g,
+        "total_protein_g": req.total_protein_g,
+        "total_fat_g": req.total_fat_g,
+        "estimated": req.estimated,
+        "notes": req.notes
+    }
+
+
+@app.get("/api/logs", response_model=GlucoseLogsResponse)
+async def get_logs(
+    range: Literal["6h", "24h", "7d", "30d"] = Query("6h"),
+    source: Literal["manual", "cgm", "all"] = Query("all"),
+    granularity: Literal["point", "hour", "day"] = Query("point"),
+    creds: HTTPAuthorizationCredentials = Depends(security)
+):
+    import uuid
     now = datetime.utcnow()
-    return [
-        LogEntry(
-            id=i,
-            timestamp=(now - timedelta(hours=i)).isoformat(),
-            value=random.randint(80, 160),
-            type="glucose"
+    # Retornando o formato agregado sugerido pelo Perplexity
+    events = []
+    
+    # Mocking data to represent an average CGM curve
+    for i in range(24):
+        val = random.randint(80, 160)
+        events.append(GlucoseEventOut(
+            id=str(uuid.uuid4()),
+            measured_at=(now - timedelta(hours=i)).replace(microsecond=0).isoformat() + "-03:00",
+            value_mg_dl=float(val),
+            trend=random.choice(["falling", "rising", "stable"]),
+            source="manual" if i % 4 == 0 else "cgm",
+            context=random.choice(["fasting", "pre_meal", "post_meal", "random"]),
+            hypo_flag=val < 70,
+            hyper_flag=val > 180
+        ))
+        
+    avg_val = sum(e.value_mg_dl for e in events) / len(events)
+    min_val = min(e.value_mg_dl for e in events)
+    max_val = max(e.value_mg_dl for e in events)
+    
+    in_range = sum(1 for e in events if 70 <= e.value_mg_dl <= 180)
+    below = sum(1 for e in events if e.value_mg_dl < 70)
+    above = sum(1 for e in events if e.value_mg_dl > 180)
+    total = len(events) or 1
+
+    metrics = GlucoseMetrics(
+        count_events=len(events),
+        avg_mg_dl=float(f"{avg_val:.1f}"),
+        min_mg_dl=min_val,
+        max_mg_dl=max_val,
+        time_in_range=TimeInRangeMetrics(
+            target_min_mg_dl=70.0,
+            target_max_mg_dl=180.0,
+            percent_in_range=float(f"{(in_range / total) * 100:.1f}"),
+            percent_below_range=float(f"{(below / total) * 100:.1f}"),
+            percent_above_range=float(f"{(above / total) * 100:.1f}")
+        ),
+        distribution=DistributionMetrics(
+            manual_count=sum(1 for e in events if e.source == "manual"),
+            cgm_count=sum(1 for e in events if e.source == "cgm")
         )
-        for i in range(12)
-    ]
+    )
+
+    
+    return GlucoseLogsResponse(
+        range=range,
+        granularity=granularity,
+        glucose_events=events,
+        metrics=metrics
+    )
+
 
 @app.get("/api/predict", response_model=PredictResponse)
 async def predict(creds: HTTPAuthorizationCredentials = Depends(security)):

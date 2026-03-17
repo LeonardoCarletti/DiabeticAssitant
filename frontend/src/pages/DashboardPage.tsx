@@ -2,11 +2,31 @@ import { useState, useEffect } from 'react';
 import { Activity, LogOut, TrendingUp, Zap, Droplet, MessageSquare, Dumbbell } from 'lucide-react';
 import { getLogs, getPredictiveAnalysis } from '../lib/api';
 
-interface LogEntry {
-  id: number;
-  timestamp: string;
-  value: number;
-  type: string;
+interface GlucoseEvent {
+  id: string;
+  measured_at: string;
+  value_mg_dl: number;
+  trend: string;
+  source: string;
+  context: string;
+}
+
+interface LogsResponseMetrics {
+  count_events: number;
+  avg_mg_dl: number | null;
+  min_mg_dl: number | null;
+  max_mg_dl: number | null;
+  time_in_range?: {
+    target_min_mg_dl: number;
+    target_max_mg_dl: number;
+    percent_in_range: number;
+    percent_below_range: number;
+    percent_above_range: number;
+  };
+  distribution?: {
+    manual_count: number;
+    cgm_count: number;
+  };
 }
 
 interface PredictData {
@@ -23,7 +43,8 @@ interface DashboardProps {
 }
 
 export default function DashboardPage({ userId, onLogout, onNavigate }: DashboardProps) {
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<GlucoseEvent[]>([]);
+  const [metrics, setMetrics] = useState<LogsResponseMetrics | null>(null);
   const [predict, setPredict] = useState<PredictData | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [time, setTime] = useState(new Date());
@@ -43,7 +64,8 @@ export default function DashboardPage({ userId, onLogout, onNavigate }: Dashboar
           getLogs(),
           getPredictiveAnalysis(),
         ]);
-        setLogs(logsData);
+        setLogs(logsData.glucose_events || []);
+        setMetrics(logsData.stats as unknown as LogsResponseMetrics || logsData.metrics);
         setPredict(predictData);
       } catch (err) {
         console.error('Erro ao carregar dados:', err);
@@ -57,7 +79,7 @@ export default function DashboardPage({ userId, onLogout, onNavigate }: Dashboar
     return () => clearInterval(interval);
   }, []);
 
-  const currentGlucose = logs.length > 0 ? logs[0].value : (predict?.next_glucose ?? 120);
+  const currentGlucose = logs.length > 0 ? logs[0].value_mg_dl : (predict?.next_glucose ?? 120);
   const glucoseStatus = currentGlucose < 70 ? 'LOW' : currentGlucose > 180 ? 'HIGH' : 'NORMAL';
   const glucoseColor = glucoseStatus === 'LOW' ? 'text-red-400' : glucoseStatus === 'HIGH' ? 'text-orange-400' : 'text-green-400';
 
@@ -66,7 +88,7 @@ export default function DashboardPage({ userId, onLogout, onNavigate }: Dashboar
 
   // Ultimas 6 medicoes para o mini grafico
   const recentLogs = logs.slice(0, 6).reverse();
-  const maxVal = Math.max(...recentLogs.map(l => l.value), 1);
+  const maxVal = Math.max(...recentLogs.map(l => l.value_mg_dl), 1);
 
   return (
     <div className="min-h-screen bg-[#050A0F] flex overflow-hidden">
@@ -157,12 +179,12 @@ export default function DashboardPage({ userId, onLogout, onNavigate }: Dashboar
                     <div key={i} className="flex-1 flex flex-col items-center gap-1">
                       <div
                         className={`w-full rounded-t ${
-                          log.value < 70 ? 'bg-red-500' :
-                          log.value > 180 ? 'bg-orange-500' : 'bg-cyan-500'
+                          log.value_mg_dl < 70 ? 'bg-red-500' :
+                          log.value_mg_dl > 180 ? 'bg-orange-500' : 'bg-cyan-500'
                         }`}
-                        style={{ height: `${(log.value / maxVal) * 100}%`, minHeight: '4px' }}
+                        style={{ height: `${(log.value_mg_dl / maxVal) * 100}%`, minHeight: '4px' }}
                       />
-                      <span className="text-xs text-gray-600">{Math.round(log.value)}</span>
+                      <span className="text-xs text-gray-600">{Math.round(log.value_mg_dl)}</span>
                     </div>
                   ))}
                 </div>
@@ -170,11 +192,12 @@ export default function DashboardPage({ userId, onLogout, onNavigate }: Dashboar
             )}
 
             {/* Metric Cards */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { label: 'Ultima Medicao', value: logs.length > 0 ? `${Math.round(logs[0].value)} mg/dL` : '---', icon: Droplet, color: 'cyan' },
-                { label: 'Tendencia', value: predict?.trend ?? '---', icon: TrendingUp, color: 'green' },
-                { label: 'Confianca IA', value: predict ? `${Math.round(predict.confidence * 100)}%` : '---', icon: Activity, color: 'blue' },
+                { label: 'Ultima Medicao', value: logs.length > 0 ? `${Math.round(logs[0].value_mg_dl)} mg/dL` : '---', icon: Droplet, color: 'cyan' },
+                { label: 'Tempo no Alvo', value: metrics?.time_in_range ? `${metrics.time_in_range.percent_in_range}%` : '---', icon: Activity, color: 'green' },
+                { label: 'Tendencia', value: predict?.trend ?? '---', icon: TrendingUp, color: 'blue' },
+                { label: 'Confianca IA', value: predict ? `${Math.round(predict.confidence * 100)}%` : '---', icon: Zap, color: 'purple' },
               ].map(m => (
                 <div key={m.label} className="bg-white/5 rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-2">
@@ -185,6 +208,7 @@ export default function DashboardPage({ userId, onLogout, onNavigate }: Dashboar
                 </div>
               ))}
             </div>
+
 
             {/* Quick Actions */}
             <div className="grid grid-cols-2 gap-4">
