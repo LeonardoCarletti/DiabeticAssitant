@@ -4,5 +4,7 @@
 fastapi
 uvicorn
 pydantic
-python-dotenv
+sqlalchemy[asyncio]==2.0.29
+asyncpg==0.29.0
+python-dotenv==1.0.1
 httpx

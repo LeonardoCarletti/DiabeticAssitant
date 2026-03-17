@@ -16,6 +16,14 @@ from backend.schemas import (
 )
 from backend.utils import compute_time_in_range, get_start_time, is_emergency, EMERGENCY_RESPONSE
 
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
+from statistics import mean as stat_mean
+import uuid
+
+from backend.database import get_db
+from backend.models import GlucoseEvent, Meal, MealItem, MealGlucoseLink
+from backend.auth import get_current_user
 app = FastAPI(title="DiabeticAssistant API")
 
 app.add_middleware(
@@ -188,47 +196,123 @@ async def chat(req: ChatRequest, creds: HTTPAuthorizationCredentials = Depends(s
         return ChatResponse(response=reply)
     return ChatResponse(response=f"[Demo] {random.choice(DIABETES_RESPONSES)}")
 
-@app.post("/api/logs/glucose")
-async def add_glucose_log(req: GlucoseEventCreate, creds: HTTPAuthorizationCredentials = Depends(security)):
-    # Em um ambiente real, pegariamos o user_id do token (creds) e fariamos o INSERT no Supabase aqui
-    # Mockando a resposta de sucesso conforme o payload do Perplexity
-    import uuid
-    from datetime import datetime
-    
-    return {
-        "id": str(uuid.uuid4()),
-        "user_id": "auth-user-uuid",
-        "value_mg_dl": req.value_mg_dl,
-        "trend": "stable",
-        "source": req.source,
-        "context": req.context,
-        "hypo_flag": req.value_mg_dl < 70,
-        "hyper_flag": req.value_mg_dl > 180,
-        "measured_at": req.measured_at,
-        "recorded_at": datetime.utcnow().isoformat(),
-        "notes": req.notes,
-        "correlation_id": req.correlation_id
-    }
+@app.post("/api/logs/glucose", response_model=GlucoseEventOut, status_code=201)
+async def create_glucose_event(
+    payload: GlucoseEventCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    event = GlucoseEvent(
+        user_id=current_user.id,
+        value_mg_dl=payload.value_mg_dl,
+        measured_at=payload.measured_at,
+        source=payload.source,
+        device_id=payload.device_id,
+        context=payload.context,
+        notes=payload.notes,
+        correlation_id=uuid.UUID(payload.correlation_id) if payload.correlation_id else None,
+        trend="unknown",
+        created_by="user",
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+
+    return GlucoseEventOut(
+        id=str(event.id),
+        measured_at=event.measured_at,
+        value_mg_dl=float(event.value_mg_dl),
+        trend=event.trend,
+        source=event.source,
+        context=event.context,
+        hypo_flag=bool(event.hypo_flag) if event.hypo_flag is not None else payload.value_mg_dl < 70,
+        hyper_flag=bool(event.hyper_flag) if event.hyper_flag is not None else payload.value_mg_dl > 180,
+        notes=event.notes,
+    )
 
 
-@app.post("/api/nutrition/meals")
-async def add_meal_log(req: MealCreateRequest, creds: HTTPAuthorizationCredentials = Depends(security)):
-    import uuid
-    from datetime import datetime
+@app.post("/api/nutrition/meals", response_model=MealOut, status_code=201)
+async def create_meal(
+    payload: MealCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    meal = Meal(
+        user_id=current_user.id,
+        name=payload.name,
+        meal_type=payload.meal_type,
+        eaten_at=payload.eaten_at,
+        total_carbs_g=payload.total_carbs_g,
+        total_protein_g=payload.total_protein_g,
+        total_fat_g=payload.total_fat_g,
+        estimated=payload.estimated,
+        notes=payload.notes,
+    )
+    db.add(meal)
+    await db.flush()  # garante meal.id antes dos filhos
+
+    items_out = []
+    for item in (payload.items or []):
+        mi = MealItem(
+            meal_id=meal.id,
+            name=item.name,
+            carbs_g=item.carbs_g,
+            protein_g=item.protein_g,
+            fat_g=item.fat_g,
+            portion=item.portion,
+        )
+        db.add(mi)
+        await db.flush()
+        items_out.append(
+            MealItemOut(
+                id=str(mi.id),
+                name=mi.name,
+                carbs_g=float(mi.carbs_g) if mi.carbs_g else None,
+                protein_g=float(mi.protein_g) if mi.protein_g else None,
+                fat_g=float(mi.fat_g) if mi.fat_g else None,
+                portion=mi.portion,
+            )
+        )
+
+    # Validar e linkar eventos de glicemia
+    for link in (payload.linked_glucose_events or []):
+        res = await db.execute(
+            select(GlucoseEvent.id).where(
+                and_(
+                    GlucoseEvent.id == uuid.UUID(link.glucose_event_id),
+                    GlucoseEvent.user_id == current_user.id,
+                )
+            )
+        )
+        if not res.scalar():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Glucose event {link.glucose_event_id} not found."
+            )
+        db.add(
+            MealGlucoseLink(
+                meal_id=meal.id,
+                glucose_event_id=uuid.UUID(link.glucose_event_id),
+                relation=link.relation
+            )
+        )
     
-    return {
-        "id": str(uuid.uuid4()),
-        "user_id": "auth-user-uuid",
-        "name": req.name,
-        "meal_type": req.meal_type,
-        "eaten_at": req.eaten_at.isoformat(),
-        "total_carbs_g": req.total_carbs_g,
-        "total_protein_g": req.total_protein_g,
-        "total_fat_g": req.total_fat_g,
-        "estimated": req.estimated,
-        "notes": req.notes,
-        "items": []
-    }
+    await db.commit()
+    await db.refresh(meal)
+    
+    return MealOut(
+        id=str(meal.id),
+        user_id=str(meal.user_id),
+        name=meal.name,
+        meal_type=meal.meal_type,
+        eaten_at=meal.eaten_at,
+        total_carbs_g=float(meal.total_carbs_g) if meal.total_carbs_g else None,
+        total_protein_g=float(meal.total_protein_g) if meal.total_protein_g else None,
+        total_fat_g=float(meal.total_fat_g) if meal.total_fat_g else None,
+        estimated=meal.estimated,
+        notes=meal.notes,
+        items=items_out,
+    )
 
 
 @app.get("/api/logs", response_model=GlucoseLogsResponse)
@@ -236,56 +320,64 @@ async def get_logs(
     time_range: Literal["6h", "24h", "7d", "30d"] = Query("6h", alias="range"),
     source: Literal["manual", "cgm", "all"] = Query("all"),
     granularity: Literal["point", "hour", "day"] = Query("point"),
-    creds: HTTPAuthorizationCredentials = Depends(security)
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    import uuid
-    import builtins
-    now = datetime.utcnow()
-    # Puxa o range dinamicamente (no futuro passaremos ao Supabase)
-    start_time = get_start_time(time_range)
-    
-    # Retornando o formato agregado
-    events_mock = []
-    
-    # Mocking data to represent an average CGM curve
-    loop_count = 24 if time_range in ["24h", "7d", "30d"] else 6
-    for i in builtins.range(loop_count):
-        val = random.randint(80, 160)
-        events_mock.append({
-            "id": str(uuid.uuid4()),
-            "measured_at": (now - timedelta(hours=i)).replace(microsecond=0).isoformat() + "-03:00",
-            "value_mg_dl": float(val),
-            "trend": random.choice(["falling", "rising", "stable"]),
-            "source": "manual" if i % 4 == 0 else "cgm",
-            "context": random.choice(["fasting", "pre_meal", "post_meal", "random"]),
-            "hypo_flag": val < 70,
-            "hyper_flag": val > 180,
-            "notes": None
-        })
-        
-    avg_val = sum(e["value_mg_dl"] for e in events_mock) / len(events_mock) if events_mock else 0
-    min_val = min(e["value_mg_dl"] for e in events_mock) if events_mock else 0
-    max_val = max(e["value_mg_dl"] for e in events_mock) if events_mock else 0
-    
-    tir = compute_time_in_range(events_mock)
+    start = get_start_time(time_range)
 
-    metrics = GlucoseMetrics(
-        count_events=len(events_mock),
-        avg_mg_dl=float(f"{avg_val:.1f}"),
-        min_mg_dl=min_val,
-        max_mg_dl=max_val,
-        time_in_range=TimeInRangeMetrics(**tir),
-        distribution=DistributionMetrics(
-            manual_count=sum(1 for e in events_mock if e["source"] == "manual"),
-            cgm_count=sum(1 for e in events_mock if e["source"] == "cgm")
+    query = select(GlucoseEvent).where(
+        and_(
+            GlucoseEvent.user_id == current_user.id,
+            GlucoseEvent.measured_at >= start,
         )
-    )
+    ).order_by(GlucoseEvent.measured_at.asc())
+
+    if source != "all":
+        query = query.where(GlucoseEvent.source == source)
+
+    result = await db.execute(query)
+    events = result.scalars().all()
+
+    events_dicts = [
+        {
+            "value_mg_dl": float(e.value_mg_dl),
+            "source":      e.source,
+        }
+        for e in events
+    ]
+
+    tir = compute_time_in_range(events_dicts)
+
+    values = [float(e.value_mg_dl) for e in events] if events else []
 
     return GlucoseLogsResponse(
         range=time_range,
         granularity=granularity,
-        glucose_events=[GlucoseEventOut(**e) for e in events_mock],
-        metrics=metrics
+        glucose_events=[
+            GlucoseEventOut(
+                id=str(e.id),
+                measured_at=e.measured_at,
+                value_mg_dl=float(e.value_mg_dl),
+                trend=e.trend,
+                source=e.source,
+                context=e.context,
+                hypo_flag=bool(e.hypo_flag),
+                hyper_flag=bool(e.hyper_flag),
+                notes=e.notes,
+            )
+            for e in events
+        ],
+        metrics=GlucoseMetrics(
+            count_events=len(events),
+            avg_mg_dl=round(stat_mean(values), 1) if values else None,
+            min_mg_dl=min(values) if values else None,
+            max_mg_dl=max(values) if values else None,
+            time_in_range=TimeInRangeMetrics(**tir),
+            distribution=DistributionMetrics(
+                manual_count=sum(1 for e in events if e.source == "manual"),
+                cgm_count=sum(1 for e in events if e.source == "cgm"),
+            ),
+        ),
     )
 
 
