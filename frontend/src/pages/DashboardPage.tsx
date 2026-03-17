@@ -39,7 +39,7 @@ interface PredictData {
 interface DashboardProps {
   userId: string;
   onLogout: () => void;
-  onNavigate: (page: 'dashboard' | 'chat' | 'workout') => void;
+  onNavigate: (page: 'dashboard' | 'chat' | 'workout' | 'nutrition') => void;
 }
 
 export default function DashboardPage({ userId, onLogout, onNavigate }: DashboardProps) {
@@ -117,6 +117,10 @@ export default function DashboardPage({ userId, onLogout, onNavigate }: Dashboar
           <button onClick={() => onNavigate('workout')}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white transition-colors text-sm">
             <Dumbbell className="w-4 h-4" /> Treinos
+          </button>
+          <button onClick={() => onNavigate('nutrition')}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white transition-colors text-sm">
+            <Droplet className="w-4 h-4 text-green-400" /> Nutrição
           </button>
         </nav>
 

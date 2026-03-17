@@ -8,3 +8,4 @@ sqlalchemy[asyncio]==2.0.29
 asyncpg==0.29.0
 python-dotenv==1.0.1
 httpx
+python-jose[cryptography]==3.3.0

@@ -3,9 +3,10 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ChatPage from './pages/ChatPage';
 import WorkoutPage from './pages/WorkoutPage';
+import NutritionPage from './pages/NutritionPage';
 import { setToken } from './lib/api';
 
-type Page = 'dashboard' | 'chat' | 'workout';
+type Page = 'dashboard' | 'chat' | 'workout' | 'nutrition';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -55,6 +56,8 @@ export default function App() {
       return <ChatPage {...commonProps} />;
     case 'workout':
       return <WorkoutPage {...commonProps} />;
+    case 'nutrition':
+      return <NutritionPage {...commonProps} />;
     default:
       return <DashboardPage {...commonProps} onLogout={handleLogout} />;
   }
