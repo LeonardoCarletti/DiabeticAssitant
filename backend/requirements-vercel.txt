@@ -1,12 +1,9 @@
-# Requirements minimos para deploy no Vercel (sem libs com dependencias de sistema)
-# Nao inclui: psycopg2-binary, pytesseract, pillow, llama-index, qdrant-client, pdfplumber
+# Requirements para deploy no Vercel - Arquitetura Supabase-py pura
+# Removido: asyncpg, sqlalchemy, uvicorn, python-jose (nao usados na nova arquitetura)
 
 fastapi
-uvicorn
 pydantic
-python-dotenv
-asyncpg
-sqlalchemy[asyncio]==2.0.29
-python-jose[cryptography]==3.3.0
 supabase==2.3.4
 google-generativeai==0.4.1
+PyJWT==2.8.0
+python-dotenv
