@@ -10,9 +10,12 @@ langchain-openai
 langchain-google-genai
 llama-index
 qdrant-client
-python-dotenv==1.0.1
-httpx
+python-dotenv
+asyncpg
+sqlalchemy[asyncio]==2.0.29
 python-jose[cryptography]==3.3.0
+supabase==2.3.4
+google-generativeai==0.4.1
 pdfplumber
 pytesseract
 pillow
