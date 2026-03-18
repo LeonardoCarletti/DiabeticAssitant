@@ -14,7 +14,8 @@ from backend.schemas import (
     GlucoseMetrics, TimeInRangeMetrics, DistributionMetrics,
     MealCreateRequest, MealOut, MealItemOut, MealsListResponse,
 )
-from backend.utils import compute_time_in_range, get_start_time, is_emergency, EMERGENCY_RESPONSE
+from backend.utils import compute_time_in_range, get_start_time, is_emergency, EMERGENCY_RESPONSE, build_clinical_context
+from backend.prompts import build_full_system_prompt
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -38,9 +39,11 @@ security = HTTPBearer(auto_error=False)
 
 class ChatRequest(BaseModel):
     message: str
+    current_glucose: Optional[float] = None
 
 class ChatResponse(BaseModel):
-    response: str
+    reply: str
+    is_emergency: bool
 
 class PredictResponse(BaseModel):
     prediction: str
@@ -104,7 +107,7 @@ WORKOUT_TEMPLATES = {
     ],
 }
 
-async def call_gemini(prompt: str, system: str = "") -> str:
+async def call_gemini(prompt: str, system: str = "", temperature: float = 0.7) -> str:
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         print("Gemini: no API key found")
@@ -115,7 +118,7 @@ async def call_gemini(prompt: str, system: str = "") -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
         payload = {
             "contents": [{"parts": [{"text": full_prompt}]}],
-            "generationConfig": {"maxOutputTokens": 1000, "temperature": 0.7}
+            "generationConfig": {"maxOutputTokens": 1000, "temperature": temperature}
         }
         for attempt in range(3):
             async with httpx.AsyncClient(timeout=25.0) as c:
@@ -182,19 +185,65 @@ async def verify_otp(req: VerifyRequest):
     raise HTTPException(status_code=401, detail="Codigo invalido")
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest, creds: HTTPAuthorizationCredentials = Depends(security)):
-    if is_emergency(req.message):
-        return ChatResponse(response=EMERGENCY_RESPONSE)
-        
-    system = (
-        "Você segue as recomendações gerais da American Diabetes Association 2025 sobre metas glicêmicas "
-        "(pré 80-130 mg/dL, pós <180 mg/dL), mas nunca ajusta insulina, doses de medicamentos ou faz diagnósticos, "
-        "apenas orientações educativas e de estilo de vida."
+async def chat(
+    payload: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    # 1) Safe Guard — verificar emergência ANTES de qualquer chamada à IA
+    if is_emergency(payload.message, payload.current_glucose):
+        return ChatResponse(reply=EMERGENCY_RESPONSE, is_emergency=True)
+
+    # 2) Buscar contexto clínico real do banco (últimas 24h)
+    since_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+
+    glucose_res = await db.execute(
+        select(GlucoseEvent).where(
+            and_(
+                GlucoseEvent.user_id == current_user.id,
+                GlucoseEvent.measured_at >= since_24h,
+            )
+        ).order_by(GlucoseEvent.measured_at.desc())
     )
-    reply = await call_gemini(req.message, system)
+    glucose_events = glucose_res.scalars().all()
+
+    meals_res = await db.execute(
+        select(Meal).where(
+            and_(
+                Meal.user_id == current_user.id,
+                Meal.eaten_at >= since_24h,
+            )
+        ).order_by(Meal.eaten_at.desc())
+    )
+    meals = meals_res.scalars().all()
+
+    # 3) Converter para dicts simples para as funções de utils
+    events_dicts = [
+        {"value_mg_dl": float(e.value_mg_dl), "source": e.source}
+        for e in glucose_events
+    ]
+    meals_dicts = [
+        {
+            "name":            m.name,
+            "meal_type":       m.meal_type,
+            "eaten_at":        m.eaten_at.isoformat(),
+            "total_carbs_g":   float(m.total_carbs_g)   if m.total_carbs_g   else 0,
+            "total_protein_g": float(m.total_protein_g) if m.total_protein_g else 0,
+            "total_fat_g":     float(m.total_fat_g)     if m.total_fat_g     else 0,
+        }
+        for m in meals
+    ]
+
+    # 4) Montar contexto clínico + system prompt completo
+    clinical_ctx  = build_clinical_context(events_dicts, meals_dicts, payload.current_glucose)
+    system_prompt = build_full_system_prompt(clinical_ctx)
+
+    # 5) Chamar Gemini 2.0 Flash
+    reply = await call_gemini(payload.message, system_prompt, temperature=0.4)
     if reply:
-        return ChatResponse(response=reply)
-    return ChatResponse(response=f"[Demo] {random.choice(DIABETES_RESPONSES)}")
+        return ChatResponse(reply=reply, is_emergency=False)
+    
+    return ChatResponse(reply="Desculpe, não consegui processar a resposta agora.", is_emergency=False)
 
 @app.post("/api/logs/glucose", response_model=GlucoseEventOut, status_code=201)
 async def create_glucose_event(
