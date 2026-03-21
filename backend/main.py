@@ -23,7 +23,8 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(
     title="Diabetics Assistant API",
     description="API for the Personal Diabetics Assistant (RAG, Exames, Perfil, Predict)",
-    version="1.0.0"
+    version="1.0.0",
+        root_path="/api"
 )
 
 # Configurando CORS para permitir que o frontend acesse a API
