@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { requestOtp, verifyOtp, setToken } from '../lib/api';
+import { requestOtp, setToken } from '../lib/api';
 import { Activity, Shield, Zap, Brain } from 'lucide-react';
+
+const DEV_BYPASS_PHONES = ['11988024265', '5511988024265', '+5511988024265'];
 
 interface LoginPageProps {
   onLogin: (token: string, uid: string) => void;
@@ -18,16 +20,16 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setLoading(true);
     setError('');
     try {
-      const res = await requestOtp(phone) as { message: string; demo?: boolean };
-      // Se for numero de bypass (demo=true), autentica automaticamente
-      if (res.demo) {
-        const authRes = await verifyOtp(phone, '123456') as { access_token: string; user_id?: string };
-        const token = authRes.access_token;
-        const uid = authRes.user_id || phone.replace(/\D/g, '');
+      const digits = phone.replace(/\D/g, '');
+      // Bypass local para numero de desenvolvimento
+      if (DEV_BYPASS_PHONES.includes(phone) || DEV_BYPASS_PHONES.includes(digits) || DEV_BYPASS_PHONES.includes('55' + digits)) {
+        const uid = '55' + digits;
+        const token = `dev-bypass-token-${uid}`;
         setToken(token);
         onLogin(token, uid);
         return;
       }
+      await requestOtp(phone);
       setStep('otp');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao enviar OTP');
@@ -41,9 +43,19 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setLoading(true);
     setError('');
     try {
-      const res = await verifyOtp(phone, code) as { access_token: string; user_id?: string };
-      const token = res.access_token;
-      const uid = res.user_id || phone.replace(/\D/g, '');
+      const API_URL = (import.meta as unknown as { env: { VITE_API_URL?: string } }).env.VITE_API_URL || '';
+      const res = await fetch(`${API_URL}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { detail?: string };
+        throw new Error(err.detail ?? 'Codigo invalido');
+      }
+      const data = await res.json() as { access_token: string; user_id?: string };
+      const token = data.access_token;
+      const uid = data.user_id || phone.replace(/\D/g, '');
       setToken(token);
       onLogin(token, uid);
     } catch (e: unknown) {
