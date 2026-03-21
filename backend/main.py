@@ -13,7 +13,7 @@ requests.Session.request = new_request
 # HTTPX Patch (OpenAI client uses HTTPX)
 old_httpx_send = httpx.Client.send
 def new_httpx_send(self, request, **kwargs):
-    self._verify = False 
+    self._verify = False
     return old_httpx_send(self, request, **kwargs)
 httpx.Client.send = new_httpx_send
 
@@ -23,14 +23,13 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(
     title="Diabetics Assistant API",
     description="API for the Personal Diabetics Assistant (RAG, Exames, Perfil, Predict)",
-    version="1.0.0",
-        root_path="/api"
+    version="1.0.0"
 )
 
 # Configurando CORS para permitir que o frontend acesse a API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Em produção, defina o domínio do frontend
+    allow_origins=["*"], # Em producao, defina o dominio do frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -51,21 +50,29 @@ from backend.api import report_routes
 from backend.api import auth_routes
 from backend.api import sync_routes
 
-app.include_router(rag_routes.router)
-app.include_router(profile_routes.router)
-app.include_router(predict_routes.router)
-app.include_router(exam_routes.router)
-app.include_router(nutrition_routes.router)
-app.include_router(workout_routes.router)
-app.include_router(logs_routes.router)
-app.include_router(autonomous_routes.router)
-app.include_router(recovery_routes.router)
-app.include_router(automation_routes.router)
-app.include_router(experiment_routes.router)
-app.include_router(report_routes.router)
-app.include_router(auth_routes.router)
-app.include_router(sync_routes.router)
+API_PREFIX = "/api"
+
+app.include_router(rag_routes.router, prefix=API_PREFIX)
+app.include_router(profile_routes.router, prefix=API_PREFIX)
+app.include_router(predict_routes.router, prefix=API_PREFIX)
+app.include_router(exam_routes.router, prefix=API_PREFIX)
+app.include_router(nutrition_routes.router, prefix=API_PREFIX)
+app.include_router(workout_routes.router, prefix=API_PREFIX)
+app.include_router(logs_routes.router, prefix=API_PREFIX)
+app.include_router(autonomous_routes.router, prefix=API_PREFIX)
+app.include_router(recovery_routes.router, prefix=API_PREFIX)
+app.include_router(automation_routes.router, prefix=API_PREFIX)
+app.include_router(experiment_routes.router, prefix=API_PREFIX)
+app.include_router(report_routes.router, prefix=API_PREFIX)
+app.include_router(auth_routes.router, prefix=API_PREFIX)
+app.include_router(sync_routes.router, prefix=API_PREFIX)
+
 
 @app.get("/")
-def read_root():
-    return {"message": "Diabetics Assistant API is running!"}
+async def root():
+    return {"status": "ok", "service": "DiabeticAssistant API V2"}
+
+
+@app.get("/api")
+async def api_root():
+    return {"status": "ok", "service": "DiabeticAssistant API V2", "version": "2.0"}
