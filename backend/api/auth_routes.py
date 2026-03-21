@@ -1,6 +1,7 @@
 """Auth routes com Supabase Phone OTP real.
 Usa supabase-py para enviar SMS e verificar OTPs via Supabase Auth.
 Fallback demo mantido para testes locais (code=000000).
+Bypass direto para numero de desenvolvimento.
 """
 import os
 import time
@@ -10,9 +11,12 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-# ── Supabase config ──────────────────────────────────────────────
+# ── Supabase config ───────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+
+# Numero de bypass para desenvolvimento (sem OTP real)
+DEV_BYPASS_PHONES = {"5511988024265", "11988024265", "+5511988024265"}
 
 # Fallback in-memory para demo (serverless: nao persiste entre requests)
 otp_storage: dict = {}
@@ -42,6 +46,11 @@ def _normalize(phone: str) -> str:
 @router.post("/otp/request")
 async def request_otp(payload: PhoneRequest):
     phone = _normalize(payload.phone)
+    raw = phone.lstrip("+")
+
+    # Bypass direto para numero de desenvolvimento
+    if raw in DEV_BYPASS_PHONES or phone in DEV_BYPASS_PHONES:
+        return {"message": "Bypass ativo - use qualquer codigo", "status": "sent", "provider": "bypass"}
 
     # Tenta Supabase Phone Auth real
     if SUPABASE_URL and SUPABASE_ANON_KEY:
@@ -65,7 +74,6 @@ async def request_otp(payload: PhoneRequest):
     # Fallback demo: gera codigo e loga no servidor
     import random
     code = str(random.randint(100000, 999999))
-    raw = phone.lstrip("+")
     otp_storage[raw] = {"code": code, "expires": time.time() + 300}
     print(f"[DEMO OTP] {phone}: {code}")
     return {"message": "Codigo enviado (modo demo)", "status": "sent", "provider": "demo"}
@@ -76,7 +84,17 @@ async def verify_otp(payload: VerifyRequest):
     phone = _normalize(payload.phone)
     raw = phone.lstrip("+")
 
-    # Master bypass para testes
+    # Bypass direto para numero de desenvolvimento - aceita QUALQUER codigo
+    if raw in DEV_BYPASS_PHONES or phone in DEV_BYPASS_PHONES:
+        return {
+            "access_token": f"dev-bypass-token-{raw}",
+            "token_type": "bearer",
+            "user_id": raw,
+            "role": "user",
+            "provider": "bypass",
+        }
+
+    # Master bypass para testes (qualquer numero com code 000000)
     if payload.code == "000000":
         return {
             "access_token": f"demo-token-{raw}",
