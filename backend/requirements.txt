@@ -21,3 +21,10 @@ pytesseract
 pillow
 pytest
 fpdf2
+langchain-qdrant
+requests
+httpx
+langchain-text-splitters
+langchain-community
+python-multipart
+firebase-admin

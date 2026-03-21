@@ -1,114 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Light Theme - Health App Style (Apple Health + Whoop inspired) */
 @layer base {
   :root {
-    /* Light Background Colors */
-    --background: 0 0% 98%; /* Quase branco */
-    --foreground: 222 47% 11%; /* Texto escuro */
-    
-    /* Card Colors - Subtle elevation */
-    --card: 0 0% 100%; /* Branco puro */
-    --card-foreground: 222 47% 11%;
-    
-    /* Primary - Health Blue */
-    --primary: 210 100% 50%; /* Azul saúde */
-    --primary-foreground: 0 0% 100%;
-    
-    /* Secondary - Soft Gray */
-    --secondary: 214 32% 91%; /* Cinza claro */
-    --secondary-foreground: 222 47% 11%;
-    
-    /* Muted - Subtle backgrounds */
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    
-    /* Accent - Health Green */
-    --accent: 142 76% 36%; /* Verde saúde */
-    --accent-foreground: 0 0% 100%;
-    
-    /* Destructive - Medical Red */
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    
-    /* Border & Input */
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 210 100% 50%;
-    
-    --radius: 0.75rem; /* Bordas mais suaves */
+    --background: 0 0% 5%;
+    --foreground: 0 0% 95%;
+
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 43 96% 56%;
+    --primary-foreground: 0 0% 5%;
+
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 95%;
+
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 60%;
+
+    --accent: 43 96% 56%;
+    --accent-foreground: 0 0% 5%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 43 96% 56%;
+
+    --radius: 0.5rem;
+
+    --gold: 43 96% 56%;
+    --gold-dark: 38 90% 40%;
+    --gold-glow: 43 96% 70%;
+
+    --sidebar-background: 0 0% 7%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 43 96% 56%;
+    --sidebar-primary-foreground: 0 0% 5%;
+    --sidebar-accent: 0 0% 12%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 0 0% 18%;
+    --sidebar-ring: 43 96% 56%;
   }
 }
 
 @layer base {
-  * { @apply border-border; }
+  * {
+    @apply border-border;
+  }
+
   body {
     @apply bg-background text-foreground;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    font-family: 'Inter', sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Oswald', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 }
 
-/* Scrollbar estilo clean */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: hsl(var(--background));
-}
-
-::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground));
-}
-
-/* Animações suaves */
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
+@layer utilities {
+  .text-gradient-gold {
+    background: linear-gradient(135deg, hsl(43 96% 56%), hsl(43 96% 70%), hsl(38 90% 40%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+
+  .bg-gradient-gold {
+    background: linear-gradient(135deg, hsl(43 96% 56%), hsl(38 90% 40%));
   }
-}
 
-@keyframes pulse-subtle {
-  0%, 100% {
-    opacity: 1;
+  .bg-gradient-dark {
+    background: linear-gradient(180deg, hsl(0 0% 5%), hsl(0 0% 8%));
   }
-  50% {
-    opacity: 0.8;
+
+  .shadow-gold {
+    box-shadow: 0 0 30px -5px hsl(43 96% 56% / 0.3);
   }
-}
 
-/* Glassmorphism sutil para cards */
-.glass-card {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(214, 219, 233, 0.3);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-}
+  .border-gold {
+    border-color: hsl(43 96% 56% / 0.3);
+  }
 
-/* Elevation shadows - Apple Health style */
-.elevation-sm {
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-}
-
-.elevation-md {
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-}
-
-.elevation-lg {
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  .glow-gold {
+    text-shadow: 0 0 40px hsl(43 96% 56% / 0.5);
+  }
 }

@@ -39,6 +39,12 @@ qdrant_local_db/
 *.swp
 *.swo
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
 # Flutter/Mobile
 mobile_app/build/
 mobile_app/.dart_tool/
