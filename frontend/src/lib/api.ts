@@ -1,4 +1,4 @@
-// ── Base config ─────────────────────────────────────────────────
+// ── Base config ───────────────────────────────────────────────
 const API_URL: string = (import.meta.env.VITE_API_URL as string) || '';
 
 let authToken = '';
@@ -28,7 +28,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
 // ── Auth ─────────────────────────────────────────────────────────
 export async function requestOtp(phone: string): Promise<{ message: string; status: string }> {
-  return apiFetch('/api/auth/otp/request', {
+  return apiFetch('/api/auth/send-otp', {
     method: 'POST',
     body: JSON.stringify({ phone }),
   });
@@ -39,7 +39,7 @@ export async function verifyOtp(phone: string, code: string): Promise<{
   user_id: string;
   role: string;
 }> {
-  return apiFetch('/api/auth/otp/verify', {
+  return apiFetch('/api/auth/verify-otp', {
     method: 'POST',
     body: JSON.stringify({ phone, code }),
   });
@@ -47,35 +47,20 @@ export async function verifyOtp(phone: string, code: string): Promise<{
 
 // ── Chat ─────────────────────────────────────────────────────────
 export async function chatWithResearcher(message: string): Promise<{ response: string }> {
-  return apiFetch('/api/chat', {
+  return apiFetch('/api/chat/', {
     method: 'POST',
     body: JSON.stringify({ message }),
   });
 }
 
-// ── RAG ─────────────────────────────────────────────────────────
-export async function ragQuery(question: string): Promise<{ answer: string; sources?: string[] }> {
-  return apiFetch('/api/rag/query', {
-    method: 'POST',
-    body: JSON.stringify({ question }),
-  });
-}
-
 // ── Perfil ───────────────────────────────────────────────────────
 export async function getProfile(): Promise<Record<string, unknown>> {
-  return apiFetch('/api/profile');
-}
-
-export async function createProfile(data: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return apiFetch('/api/profile', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+  return apiFetch('/api/profile/');
 }
 
 export async function updateProfile(data: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return apiFetch('/api/profile', {
-    method: 'PUT',
+  return apiFetch('/api/profile/', {
+    method: 'PATCH',
     body: JSON.stringify(data),
   });
 }
@@ -100,7 +85,7 @@ export async function getGlucoseLogs(params?: {
   if (params?.source) searchParams.set('source', params.source);
   if (params?.granularity) searchParams.set('granularity', params.granularity);
   const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
-  return apiFetch(`/api/logs${query}`);
+  return apiFetch(`/api/logs/glucose${query}`);
 }
 
 export async function createGlucoseEvent(
@@ -118,26 +103,16 @@ export async function getMeals(params?: {
 }): Promise<MealsListResponse> {
   const q = new URLSearchParams();
   if (params?.range) q.set('range', params.range);
-  return apiFetch(`/api/nutrition/meals?${q.toString()}`);
+  return apiFetch(`/api/logs/meals?${q.toString()}`);
 }
 
 export async function createMeal(
   payload: MealCreateRequest
 ): Promise<MealOut> {
-  return apiFetch('/api/nutrition/meals', {
+  return apiFetch('/api/logs/meals', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
-}
-
-// ── Predict ──────────────────────────────────────────────────────
-export async function getPredictiveAnalysis(): Promise<{
-  prediction: string;
-  confidence: number;
-  next_glucose: number;
-  trend: string;
-}> {
-  return apiFetch('/api/predict');
 }
 
 // ── Workout ──────────────────────────────────────────────────────
@@ -159,23 +134,22 @@ export async function generateWorkout(profile: {
   });
 }
 
-// ── Exames ───────────────────────────────────────────────────────
-export async function getExams(): Promise<Record<string, unknown>[]> {
-  return apiFetch('/api/exam');
+// ── Nutricao page ───────────────────────────────────────────────
+export async function getNutritionMeals(params?: {
+  range?: '24h' | '7d' | '30d';
+}): Promise<MealsListResponse> {
+  const q = new URLSearchParams();
+  if (params?.range) q.set('range', params.range);
+  return apiFetch(`/api/nutrition/meals?${q.toString()}`);
 }
 
-export async function uploadExam(formData: FormData): Promise<Record<string, unknown>> {
-  // Upload multipart - sem Content-Type para o browser definir o boundary
-  const res = await fetch(`${API_URL}/api/exam/upload`, {
+export async function createNutritionMeal(
+  payload: MealCreateRequest
+): Promise<MealOut> {
+  return apiFetch('/api/nutrition/meals', {
     method: 'POST',
-    headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
-    body: formData,
+    body: JSON.stringify(payload),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { detail?: string };
-    throw new Error(err.detail ?? 'Erro no upload');
-  }
-  return res.json();
 }
 
 // ── Report ───────────────────────────────────────────────────────
@@ -185,27 +159,10 @@ export async function getReport(params?: { period?: string }): Promise<{ report:
   return apiFetch(`/api/report?${q.toString()}`);
 }
 
-// ── Sync ─────────────────────────────────────────────────────────
-export async function syncData(): Promise<{ status: string; message: string }> {
-  return apiFetch('/api/sync', { method: 'POST' });
-}
-
-// ── Autonomo ─────────────────────────────────────────────────────
-export async function getAutonomousInsights(): Promise<{ insights: string[] }> {
-  return apiFetch('/api/autonomous/insights');
-}
-
-// ── Recovery ─────────────────────────────────────────────────────
-export async function getRecoveryPlan(): Promise<{ plan: string }> {
-  return apiFetch('/api/recovery/plan');
-}
-
-// ── Automation ───────────────────────────────────────────────────
-export async function getAutomationStatus(): Promise<{ automations: Record<string, unknown>[] }> {
-  return apiFetch('/api/automation/status');
-}
-
-// ── Experiment ───────────────────────────────────────────────────
-export async function getExperiments(): Promise<{ experiments: Record<string, unknown>[] }> {
-  return apiFetch('/api/experiment');
+// ── RAG ─────────────────────────────────────────────────────────
+export async function ragQuery(question: string): Promise<{ answer: string; sources?: string[] }> {
+  return apiFetch('/api/rag/query', {
+    method: 'POST',
+    body: JSON.stringify({ question }),
+  });
 }
