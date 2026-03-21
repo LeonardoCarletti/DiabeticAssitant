@@ -18,7 +18,16 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setLoading(true);
     setError('');
     try {
-      await requestOtp(phone);
+      const res = await requestOtp(phone) as { message: string; demo?: boolean };
+      // Se for numero de bypass (demo=true), autentica automaticamente
+      if (res.demo) {
+        const authRes = await verifyOtp(phone, '123456') as { access_token: string; user_id?: string };
+        const token = authRes.access_token;
+        const uid = authRes.user_id || phone.replace(/\D/g, '');
+        setToken(token);
+        onLogin(token, uid);
+        return;
+      }
       setStep('otp');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao enviar OTP');
@@ -35,6 +44,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       const res = await verifyOtp(phone, code) as { access_token: string; user_id?: string };
       const token = res.access_token;
       const uid = res.user_id || phone.replace(/\D/g, '');
+      setToken(token);
       onLogin(token, uid);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Codigo invalido');
@@ -87,58 +97,52 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 <input
                   type="tel"
                   value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="+55 11 99999-9999"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-cyan-400/50 focus:bg-white/8 transition-all text-sm"
-                  onKeyDown={e => e.key === 'Enter' && handleRequestOtp()}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+55 11 90000-0000"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/50 focus:bg-white/8 transition-all"
+                  onKeyDown={(e) => e.key === 'Enter' && handleRequestOtp()}
                 />
               </div>
+              {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
               <button
                 onClick={handleRequestOtp}
                 disabled={loading || !phone}
-                className="w-full bg-cyan-400 hover:bg-cyan-300 disabled:opacity-30 disabled:cursor-not-allowed text-black font-bold py-3 rounded-xl transition-all duration-200 text-sm tracking-wider uppercase"
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50"
               >
-                {loading ? 'Enviando...' : 'Enviar Codigo OTP'}
+                {loading ? 'AGUARDE...' : 'CONTINUAR'}
               </button>
             </>
           ) : (
             <>
-              <div className="mb-2">
-                <button onClick={() => setStep('phone')} className="text-xs text-gray-500 hover:text-cyan-400 transition-colors mb-4 flex items-center gap-1">
-                  ← Voltar
-                </button>
-                <label className="block text-xs text-gray-400 uppercase tracking-widest mb-2">Codigo OTP</label>
+              <div className="mb-6">
+                <label className="block text-xs text-gray-400 uppercase tracking-widest mb-2">Codigo SMS</label>
                 <input
                   type="text"
                   value={code}
-                  onChange={e => setCode(e.target.value)}
+                  onChange={(e) => setCode(e.target.value)}
                   placeholder="000000"
                   maxLength={6}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-center placeholder-gray-600 focus:outline-none focus:border-cyan-400/50 transition-all text-2xl tracking-widest"
-                  onKeyDown={e => e.key === 'Enter' && handleVerifyOtp()}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/50 focus:bg-white/8 transition-all text-center text-2xl tracking-widest"
+                  onKeyDown={(e) => e.key === 'Enter' && handleVerifyOtp()}
                 />
-                <p className="text-xs text-gray-600 mt-2 text-center">Codigo enviado para {phone}</p>
               </div>
+              {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
               <button
                 onClick={handleVerifyOtp}
-                disabled={loading || code.length < 4}
-                className="w-full mt-4 bg-cyan-400 hover:bg-cyan-300 disabled:opacity-30 disabled:cursor-not-allowed text-black font-bold py-3 rounded-xl transition-all duration-200 text-sm tracking-wider uppercase"
+                disabled={loading || !code}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50"
               >
-                {loading ? 'Verificando...' : 'Acessar HUD'}
+                {loading ? 'VERIFICANDO...' : 'ENTRAR'}
+              </button>
+              <button
+                onClick={() => { setStep('phone'); setError(''); }}
+                className="w-full mt-3 py-2 text-gray-500 text-sm hover:text-gray-300 transition-colors"
+              >
+                Voltar
               </button>
             </>
           )}
-
-          {error && (
-            <div className="mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs text-center">
-              {error}
-            </div>
-          )}
         </div>
-
-        <p className="text-center text-xs text-gray-700 mt-6">
-          Diabetic Assistant &copy; 2026 — Performance Intelligence
-        </p>
       </div>
     </div>
   );
