@@ -41,6 +41,7 @@ from backend.api import predict_routes
 from backend.api import exam_routes
 from backend.api import nutrition_routes
 from backend.api import workout_routes
+from backend.api import logs_routes
 from backend.api import autonomous_routes
 from backend.api import recovery_routes
 from backend.api import automation_routes
@@ -55,6 +56,7 @@ app.include_router(predict_routes.router)
 app.include_router(exam_routes.router)
 app.include_router(nutrition_routes.router)
 app.include_router(workout_routes.router)
+app.include_router(logs_routes.router)
 app.include_router(autonomous_routes.router)
 app.include_router(recovery_routes.router)
 app.include_router(automation_routes.router)
