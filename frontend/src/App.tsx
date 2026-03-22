@@ -4,9 +4,12 @@ import DashboardPage from './pages/DashboardPage';
 import ChatPage from './pages/ChatPage';
 import WorkoutPage from './pages/WorkoutPage';
 import NutritionPage from './pages/NutritionPage';
+import VitalsPage from './pages/VitalsPage';
+import LogsPage from './pages/LogsPage';
+import ProfilePage from './pages/ProfilePage';
 import { setToken } from './lib/api';
 
-type Page = 'dashboard' | 'chat' | 'workout' | 'nutrition';
+type Page = 'dashboard' | 'chat' | 'workout' | 'nutrition' | 'vitals' | 'logs' | 'profile';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -58,6 +61,12 @@ export default function App() {
       return <WorkoutPage {...commonProps} />;
     case 'nutrition':
       return <NutritionPage {...commonProps} />;
+    case 'vitals':
+      return <VitalsPage {...commonProps} />;
+    case 'logs':
+      return <LogsPage {...commonProps} />;
+    case 'profile':
+      return <ProfilePage {...commonProps} onLogout={handleLogout} />;
     default:
       return <DashboardPage {...commonProps} onLogout={handleLogout} />;
   }
